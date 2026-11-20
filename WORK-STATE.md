@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 172. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 173. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -49,5 +49,5 @@ Copy of the Work OS state, version 172. WORK-STATE.md is a copy of the State, wr
 - Today's DB ops grew 1-2 between the 23 Oct budgets and R8 (page 30, rsc 25, complete 44); probe.mjs now prints ops per collection; find which read grew (devices=6 on one Today load looks high).
 - Claude page: a session's last line can be a subagent's compaction summary (AKAR row showed "<analysis> I am an Opus builder subagent..."): take the last line from the main conversation only, never from a summary.
 - worker test hook-h7 timing flake (failed in a full worker run, passed alone twice, 20 Nov).
-- Search (builder-a): leak-audit flags /dev/ui; each search re-renders the page (~420 KB) and examines ~9k docs; builder A fixing before the security review.
-<!-- work-os-copy sha1:0acc5debd8faa281fdc8185d9b2554abb6dde574 -->
+- Search (builder-a c97c00e): GET /api/search, 3 KB per search, ~290 docs examined (was 8.4k); only the 500 newest docs' descriptions/bodies and open tasks' newest comments are searched (older text not found); security review running.
+<!-- work-os-copy sha1:1a99eb5b5ec5d2b1fbd3e42e018716d8beb9dca8 -->
