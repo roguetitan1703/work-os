@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 169. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 170. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -12,6 +12,7 @@ Copy of the Work OS state, version 169. WORK-STATE.md is a copy of the State, wr
 4. Redesign (note c475deb871): 1 library done (builder-s2 b2991a4); 2 navigation done (builder-b df92f9c, taps 3->2, 4->3, 3->2); 3 sessions first (B) and 5 one search (A, needs independent review) running; then 4 Needs and Today, 6 tasks; look by eye, merge to dev together.
 5. Redesign steps 7 (every other page on the library, until check:ui counts zero) and 8 (second independent review of every page for the same UX), after steps 3-6.
 6. Signed worker auto-update (Om yes 20 Nov), builder in wos-s (Opus); then an independent security review, then the signing key made on Om's PC and the first signed release.
+7. Work OS skills installed by the worker (/transfer, /declutter, /report, /start, /doing, /done, /fix, /review): give to the slot S builder right after signed auto-update (same install code); skill text in the repo; a design note first.
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -47,4 +48,4 @@ Copy of the Work OS state, version 169. WORK-STATE.md is a copy of the State, wr
 - tests/live-release.test.mjs fails on a server-only import (seen by builder S2 20 Nov); check on dev and fix.
 - Today's DB ops grew 1-2 between the 23 Oct budgets and R8 (page 30, rsc 25, complete 44); probe.mjs now prints ops per collection; find which read grew (devices=6 on one Today load looks high).
 - Claude page: a session's last line can be a subagent's compaction summary (AKAR row showed "<analysis> I am an Opus builder subagent..."): take the last line from the main conversation only, never from a summary.
-<!-- work-os-copy sha1:fe1ea5b9cb44bc6502eb4e5952df9f21edd25e0b -->
+<!-- work-os-copy sha1:db1eb418f76e181ab18b2873f48e9b2247ed73c5 -->
