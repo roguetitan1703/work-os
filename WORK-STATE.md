@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 214. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 215. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -70,4 +70,5 @@ Copy of the Work OS state, version 214. WORK-STATE.md is a copy of the State, wr
 - Monitoring service on the Oracle Micro (Akash): Work OS needs a public /health endpoint (today only /api/live); alerts may later become Work OS messages (Om's chat, m_c7651765f8d6)
 - Full run on e8b392f: Claude › Set up phone check overflowed once (summary row of a Disclosure) and Today complete ran 47 database ops against a budget of 45; both rerun alone on a52351f before the release
 - Claude chat feedback 20 Nov: its Work OS tool list is from before 19 Nov (quotes the removed to_session text), claude.ai does not refresh it; also read-only get_message, say whether chats call start_work, state the no-teammate-sessions rule in send_message, a one-line glossary, server instructions get truncated, recent_activity says hook where chats have none — waits on messaging design note after Om's switch
-<!-- work-os-copy sha1:ccdf037b372a7c358706022e6efc73ae05de8d7b -->
+- Bug: a Claude chat's start_work on Work OS (no pick_up) attached the lead's 13:49 handover and stamped it picked up by the chat; a chat must never take over a Code session's handover; check whether Needs or held lines moved (Om's chat, m_890469b90393)
+<!-- work-os-copy sha1:cc35ed732c51147841a95c18ff3dc7522ed34e47 -->
