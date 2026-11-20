@@ -1,10 +1,12 @@
 'use client';
 
 import { PrivateBadge } from '@/components/private-badge';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import { Search, SlidersHorizontal, X } from 'lucide-react';
+import { openSearch } from '../global-search';
+import { Button } from '../ui/button';
 import type { Priority, Task } from '@/lib/types';
 import { addDays } from '@/lib/dates';
 import { cn } from '@/lib/utils';
@@ -30,14 +32,14 @@ const DUE_OPTS: { key: string; label: string }[] = [
   { key: 'next_7_days', label: 'Next 7 days' },
   { key: 'no_date', label: 'No date' },
 ];
-type Filters = { project: string; mode: string; due: string; q: string; assigned: string };
+type Filters = { project: string; mode: string; due: string; assigned: string };
 type Proj = { id: string; name: string; private?: boolean };
 const PRIOS: Priority[] = ['P1', 'P2', 'P3', 'P4'];
 const PRIO_LABEL: Record<Priority, string> = { P1: 'P1 · must ship', P2: 'P2', P3: 'P3', P4: 'P4 · backlog' };
 
 /**
- * Phone task list. Project / mode / due / q live in the URL (same keys as the desktop board, so
- * /tasks?due=overdue works); segments and the search box filter instantly on the device.
+ * Phone task list. Project / mode / due live in the URL (same keys as the desktop board, so
+ * /tasks?due=overdue works); segments filter instantly on the device. Search opens the global search on Tasks.
  * Every row has a status / priority / due / mode sheet (long-press or the ... button).
  */
 export function MobileTasks({ tasks, projects, noteTaskIds, filters, focusSearch = false, top }: { tasks: Task[]; projects: Proj[]; noteTaskIds: string[]; filters: Filters; focusSearch?: boolean; /** Above the search (Needs you). */ top?: React.ReactNode }) {
@@ -47,18 +49,13 @@ export function MobileTasks({ tasks, projects, noteTaskIds, filters, focusSearch
   const notes = useMemo(() => new Set(noteTaskIds), [noteTaskIds]);
   const [seg, setSeg] = useState<Seg>('open');
   const [sheet, setSheet] = useState(false);
-  const [q, setQ] = useState(filters.q);
-  const searchBox = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (focusSearch) searchBox.current?.focus();
+    if (focusSearch) openSearch('tasks');
   }, [focusSearch]);
-  const qTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const project = filters.project || null;
 
-  useEffect(() => () => void (qTimer.current && clearTimeout(qTimer.current)), []);
-
   function setFilter(key: keyof Filters, value: string, replace = false) {
-    // Read the live URL: the debounced search fires later, and a stale `params` would undo a filter picked since.
+    // Read the live URL, so a stale `params` never undoes a filter picked since.
     const next = new URLSearchParams(window.location.search);
     if (value) next.set(key, value);
     else next.delete(key);
@@ -73,16 +70,8 @@ export function MobileTasks({ tasks, projects, noteTaskIds, filters, focusSearch
     router.push(`/tasks${next.size ? '?' + next : ''}`, { scroll: false });
   }
 
-  function onSearch(v: string) {
-    setQ(v);
-    if (qTimer.current) clearTimeout(qTimer.current);
-    qTimer.current = setTimeout(() => setFilter('q', v.trim(), true), 450);
-  }
-
   const list = useMemo(() => {
-    const needle = q.trim().toLowerCase().replace(/^#/, '');
     return tasks.filter(t => {
-      if (needle && !t.title.toLowerCase().includes(needle) && String(t.ref) !== needle && !t.tags.some(g => g.includes(needle))) return false;
       const open = t.status !== 'Done' && t.status !== 'Dropped';
       if (seg === 'done') return t.status === 'Done';
       if (!open) return false;
@@ -90,7 +79,7 @@ export function MobileTasks({ tasks, projects, noteTaskIds, filters, focusSearch
       if (seg === 'waiting') return t.status === 'Blocked' || t.dependsOn.length > 0;
       return true;
     });
-  }, [tasks, seg, q, today]);
+  }, [tasks, seg, today]);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
@@ -110,30 +99,9 @@ export function MobileTasks({ tasks, projects, noteTaskIds, filters, focusSearch
       {top && <div className="mb-3">{top}</div>}
 
       <div className="flex gap-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input
-            ref={searchBox}
-            data-task-search
-            value={q}
-            onChange={e => onSearch(e.target.value)}
-            placeholder="Search tasks or #ref"
-            enterKeyHint="search"
-            className="w-full h-11 rounded-xl bg-muted/70 pl-9 pr-11 text-[16px] outline-none placeholder:text-muted-foreground"
-          />
-          {q && (
-            <button
-              onClick={() => {
-                setQ('');
-                setFilter('q', '', true);
-              }}
-              className="absolute right-0 top-0 w-11 h-11 flex items-center justify-center text-muted-foreground"
-              aria-label="Clear"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
-        </div>
+        <Button variant="ghost" data-task-search onClick={() => openSearch('tasks')} className="flex-1 h-11 justify-start gap-2 rounded-xl bg-muted/70 px-3 text-base font-normal text-muted-foreground">
+          <Search className="w-4 h-4" /> Search tasks or #ref
+        </Button>
         <button
           onClick={() => setSheet(true)}
           aria-label="Filters"
@@ -184,14 +152,14 @@ export function MobileTasks({ tasks, projects, noteTaskIds, filters, focusSearch
         <ModeHelp chip />
       </div>
 
-      {tasks.length === 0 && !q && !nFilters && !filters.assigned ? (
+      {tasks.length === 0 && !nFilters && !filters.assigned ? (
         <div className="mt-12 flex flex-col items-center gap-3 text-center" data-tasks-empty>
           <NavIcon icon={PLACE_ICON.tasks} size={24} className="text-muted-foreground" />
           <p className="text-sm text-muted-foreground">No tasks yet. Add one, or ask Claude to.</p>
           <AddTaskButton label="Add a task" />
         </div>
       ) : list.length === 0 ? (
-        <p className="mt-12 text-center text-sm text-muted-foreground">{q || nFilters ? 'No tasks match.' : seg === 'done' ? 'Nothing finished this week yet.' : 'Nothing here.'}</p>
+        <p className="mt-12 text-center text-sm text-muted-foreground">{nFilters ? 'No tasks match.' : seg === 'done' ? 'Nothing finished this week yet.' : 'Nothing here.'}</p>
       ) : seg === 'open' ? (
         PRIOS.map(p => {
           const group = list.filter(t => t.priority === p);

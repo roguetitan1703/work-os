@@ -1,7 +1,7 @@
 'use client';
 
 import { privateSuffix } from '@/components/private-badge';
-import { useState, useTransition } from 'react';
+import { useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { FilePlus } from 'lucide-react';
 import { toast } from 'sonner';
@@ -21,6 +21,7 @@ export function NewNoteButton({
   defaultProject,
   label,
   className,
+  startOpen,
 }: {
   task?: number;
   project?: string;
@@ -28,12 +29,19 @@ export function NewNoteButton({
   defaultProject?: string;
   label?: string;
   className?: string;
+  /** /notes?new=1 (search's New note action): open the title and project form at once (desktop). */
+  startOpen?: boolean;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [picking, setPicking] = useState(false);
   const [pick, setPick] = useState(defaultProject ?? projects?.[0]?.id ?? '');
   const [title, setTitle] = useState('');
+  useEffect(() => {
+    if (!startOpen || !projects || !window.matchMedia('(min-width: 768px)').matches) return;
+    const t = setTimeout(() => setPicking(true));
+    return () => clearTimeout(t);
+  }, [startOpen, projects]);
 
   const create = (input: { task?: number; project?: string; title?: string }) =>
     start(async () => {

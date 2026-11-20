@@ -1,9 +1,9 @@
 // Notes search: a word that is only in a note's body (not its title) is found from every search entry point.
-//   - desktop 1280: the Filter button and Enter in the search box; the URL carries q; the list shows the note and hides the other;
-//   - phone 390: live search (debounced) re-renders the list; clearing the box brings the full list back;
-//   - global search finds the note by its body.
+//   - desktop 1280 and phone 390: the Notes list's search button opens the global search on Notes, which finds the
+//     note and not the other one;
+//   - global search (from the sidebar) finds the note by its body.
 // Seed profile: none.
-import { B, MCP, ME, check, finish, launch, login, call } from './lib.mjs';
+import { check, finish, launch, login, call } from './lib.mjs';
 
 const W1 = 'zorbulax', W2 = 'quenfibble';
 const browser = await launch();
@@ -12,30 +12,28 @@ try {
   const n1 = (await call('write_note', { project: 'NS Proj', title: 'Alpha page', body: `The ${W1} appears only in the body.` }))?.created?.id;
   const n2 = (await call('write_note', { project: 'NS Proj', title: 'Beta page', body: `Here the ${W2} lives.` }))?.created?.id;
   check('two notes created', !!n1 && !!n2, JSON.stringify([n1, n2]));
-  const listed = async p => (await p.locator('a[href^="/notes/"]:visible').allInnerTexts()).join(' | ');
+
+  // The Notes list has no text box of its own: its search button opens the global search on Notes.
+  const viaNotes = async (p, word) => {
+    await p.locator('[data-notes-search]:visible').first().click();
+    const gi = p.locator('input[aria-controls=global-search-results]');
+    await gi.waitFor();
+    const onNotes = (await p.locator('[data-filter=notes][aria-pressed=true]').count()) === 1;
+    await gi.fill(word);
+    await p.waitForTimeout(1500);
+    const t = (await p.locator('#global-search-results [role=option]').allInnerTexts()).join(' | ');
+    return { onNotes, t };
+  };
 
   // ---- desktop ----
   const dctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   const d = await dctx.newPage();
   const derrs = []; d.on('pageerror', e => derrs.push(e.message));
   await login(d, { next: '/notes' });
-  await d.waitForSelector('input[name=q]:visible');
-  await d.fill('input[name=q]:visible', W1);
-  await d.click('form button:has-text("Filter")');
-  await d.waitForURL(/q=/);
-  console.log('desktop filter url', d.url());
-  await d.waitForTimeout(600);
-  let t = await listed(d);
-  check('desktop Filter: finds the body-only note', t.includes('Alpha page'), t);
-  check('desktop Filter: hides the other note', !t.includes('Beta page'), t);
-  await d.goto(B + '/notes'); await d.waitForSelector('input[name=q]:visible');
-  await d.fill('input[name=q]:visible', W2);
-  await d.press('input[name=q]:visible', 'Enter');
-  await d.waitForURL(/q=/);
-  console.log('desktop enter url', d.url());
-  await d.waitForTimeout(600);
-  t = await listed(d);
-  check('desktop Enter: finds the body-only note', t.includes('Beta page') && !t.includes('Alpha page'), t);
+  let r = await viaNotes(d, W1);
+  check('desktop: the Notes search opens on Notes', r.onNotes);
+  check('desktop: finds the body-only note', r.t.includes('Alpha page'), r.t);
+  check('desktop: not the other note', !r.t.includes('Beta page'), r.t);
   check('desktop: no page errors', derrs.length === 0, derrs.join(';'));
   await dctx.close();
 
@@ -43,20 +41,13 @@ try {
   const pctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
   const p = await pctx.newPage();
   await login(p, { phone: true, next: '/notes' });
-  const box = p.locator('input[placeholder="Search notes"]');
-  await box.waitFor();
   await p.waitForTimeout(500);
-  await box.fill(W1);
-  await p.waitForTimeout(1500);
-  console.log('phone url', p.url());
-  t = await listed(p);
-  check('phone live search: URL has q', p.url().includes('q=' + W1), p.url());
-  check('phone live search: list shows the body-only note', t.includes('Alpha page'), t);
-  check('phone live search: list hides the other note', !t.includes('Beta page'), t);
-  await box.fill('');
-  await p.waitForTimeout(1500);
-  t = await listed(p);
-  check('phone: clearing the box brings both back', t.includes('Alpha page') && t.includes('Beta page'), t);
+  r = await viaNotes(p, W2);
+  check('phone: the Notes search opens on Notes', r.onNotes);
+  check('phone: finds the body-only note', r.t.includes('Beta page') && !r.t.includes('Alpha page'), r.t);
+  await p.locator('#global-search-results [role=option]').first().tap();
+  await p.waitForURL(/\/notes\/[^/]+$/);
+  check('phone: a tap opens the note', true);
   await pctx.close();
 
   // ---- global search ----

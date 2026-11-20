@@ -11,12 +11,12 @@ import { HubSegment } from '@/components/mobile/hub-segment';
 import { NewProjectButton } from './new-project';
 import { requireScope } from '@/lib/caller';
 
-type Props = { searchParams: Promise<{ all?: string }> };
+type Props = { searchParams: Promise<{ all?: string; new?: string }> };
 
 export const metadata = { title: 'Projects · Work OS' };
 
 export default async function ProjectsPage({ searchParams }: Props) {
-  const { all } = await searchParams;
+  const { all, new: fresh } = await searchParams;
   const s = await requireScope();
   const projects = await listProjects(s, { includeInactive: all === '1' });
   const goals = await nowOfProjects(s, projects.map(p => p.id));
@@ -54,7 +54,7 @@ export default async function ProjectsPage({ searchParams }: Props) {
             </Link>
           </p>
         </div>
-        <NewProjectButton />
+        <NewProjectButton startOpen={fresh === '1' ? 'desktop' : undefined} />
       </div>
 
       {projects.length === 0 && (

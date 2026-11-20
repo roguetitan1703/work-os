@@ -16,7 +16,8 @@ import { DelpatOsPicker } from './delpat-os-picker';
 import { AudiencePicker, SharingChoice, SHARING_HELP, type Sharing } from './sharing-choice';
 import { useApp } from '@/components/app-context';
 
-export function NewProjectButton() {
+/** `startOpen` (/projects?new=1, search's New project action): this instance opens at once on its size (the page has one per size). */
+export function NewProjectButton({ startOpen }: { startOpen?: 'phone' | 'desktop' } = {}) {
   const router = useRouter();
   const phone = usePhone();
   const [open, setOpen] = useState(false);
@@ -39,6 +40,11 @@ export function NewProjectButton() {
     setMode('new');
     setOpen(true);
   };
+  useEffect(() => {
+    if (!startOpen || (startOpen === 'phone') !== !window.matchMedia('(min-width: 768px)').matches) return;
+    const t = setTimeout(() => setOpen(true));
+    return () => clearTimeout(t);
+  }, [startOpen]);
   const imported = (id: string) => {
     setOpen(false);
     router.push(`/projects/${id}`);

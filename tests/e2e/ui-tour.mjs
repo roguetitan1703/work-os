@@ -330,10 +330,11 @@ async function tour(br, tag) {
   }
   // notes list search
   await g('/notes');
-  const nbox = phone ? p.locator('input[placeholder="Search notes"]') : p.locator('input[name=q]:visible');
+  // The Notes search button opens the global search on Notes (the list has no text box of its own).
+  const nbox = p.locator('input[aria-controls=global-search-results]');
   for (const [kind, w, want] of [['title-word', 'migration', 'Kestrel migration plan'], ['note-body-word', 'tessellate', 'Kestrel migration plan'], ['project-name', 'Maple', 'Call notes: Maple Studio'], ['ref', `#${sref}`, 'Rewrite pricing']]) {
+    if (!(await nbox.count())) { await p.locator('[data-notes-search]:visible').first().click(); await nbox.waitFor(); }
     await nbox.fill(w);
-    if (!phone) await nbox.press('Enter');
     await p.waitForTimeout(1600);
     const t = (await p.locator('a[href^="/notes/"]:visible').allInnerTexts()).join(' | ').replace(/\s+/g, ' ');
     const hit = t.includes(want);
@@ -514,8 +515,9 @@ async function jobs(br, tag) {
   await job(6, 'Find a note by a word in its title or body', async ({ step, hard }) => {
     if (phone) { await step('Projects in the bar (Notes sit under Projects on the phone)', () => tab('/projects')); await step('Notes link on the Projects page', () => T(p.locator('a[href="/notes"]:visible'))); }
     else await step('Sidebar: Notes', () => tab('/notes'));
-    const box = phone ? p.locator('input[placeholder="Search notes"]') : p.locator('input[name=q]:visible');
-    await step('Type a body word (tessellate)', async () => { await box.fill('tessellate'); if (!phone) await box.press('Enter'); await p.waitForTimeout(1200); }, { tap: true });
+    const box = p.locator('input[aria-controls=global-search-results]');
+    await step('Search notes', () => T(p.locator('[data-notes-search]:visible').first()));
+    await step('Type a body word (tessellate)', async () => { await box.fill('tessellate'); await p.waitForTimeout(1200); }, { tap: true });
     if (!(await p.locator('a[href^="/notes/"]:visible').allInnerTexts()).join('').includes('Kestrel migration plan')) hard('body word not found');
     await step('Open the note', () => T(p.locator('a[href^="/notes/"]:visible', { hasText: 'Kestrel migration plan' })));
   });

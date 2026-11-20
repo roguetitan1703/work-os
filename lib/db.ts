@@ -666,6 +666,9 @@ const INDEXES: [string, IndexDescription[]][] = [
       { key: { parentId: 1 }, name: 'parent', sparse: true },
       // The heads of recurring series the alerts cron looks at every 15 minutes (spawnDueOccurrences): only repeating tasks are in it.
       { key: { orgId: 1, nextRef: 1, due: 1 }, name: 'recurring_heads', partialFilterExpression: { recurrence: { $type: 'object' } } },
+      // Search (lib/search/tasks.ts): titles over every task (only matching keys' documents are read), the other fields among the most recently changed.
+      { key: { orgId: 1, title: 1 }, name: 'org_title' },
+      { key: { orgId: 1, updatedAt: -1 }, name: 'org_updated' },
     ]],
     ['activity', [
       { key: { taskId: 1, at: -1 }, name: 'task_at' },
@@ -674,6 +677,8 @@ const INDEXES: [string, IndexDescription[]][] = [
       { key: { orgId: 1, projectId: 1, at: -1 }, name: 'org_project_at', partialFilterExpression: { projectId: { $type: 'string' } } },
       // A subject's own rows (a Need restamped, a note purged, one note_edited row per editor per hour).
       { key: { 'subject.id': 1, at: -1 }, name: 'subject_at', partialFilterExpression: { 'subject.id': { $type: 'string' } } },
+      // Search over comments (lib/search/tasks.ts): the most recent comments only, not every history row.
+      { key: { orgId: 1, type: 1, at: -1 }, name: 'org_comments_at', partialFilterExpression: { type: 'comment' } },
     ]],
     ['projects', [
       // Names: one per organization among shared projects, one per owner among private ones (docs/multi-user.md).
@@ -699,6 +704,8 @@ const INDEXES: [string, IndexDescription[]][] = [
       { key: { projectId: 1, updatedAt: -1 }, name: 'project_updated' },
       { key: { orgId: 1, updatedAt: -1 }, name: 'org_updated' },
       { key: { parentId: 1 }, name: 'parent', sparse: true },
+      // Search (lib/search/notes.ts): titles over every note.
+      { key: { orgId: 1, title: 1 }, name: 'org_title' },
     ]],
     ['needs', [
       { key: { orgId: 1, ref: 1 }, unique: true, name: 'org_ref_unique' },
@@ -714,7 +721,7 @@ const INDEXES: [string, IndexDescription[]][] = [
     ]],
     ['devices', [{ key: { hash: 1 }, unique: true, name: 'hash_unique' }, { key: { orgId: 1, ownerId: 1 }, name: 'org_owner' }]],
     ['agentSessions', [{ key: { hash: 1 }, unique: true, name: 'hash_unique' }, { key: { deviceId: 1, createdAt: -1 }, name: 'device_created' }, { key: { expiresAt: 1 }, name: 'expires_ttl', expireAfterSeconds: 0 }]],
-    ['workerFolders', [{ key: { deviceId: 1, name: 1 }, name: 'device_name' }, { key: { projectId: 1 }, name: 'project' }, { key: { remote: 1 }, name: 'remote' }]],
+    ['workerFolders', [{ key: { deviceId: 1, name: 1 }, name: 'device_name' }, { key: { projectId: 1 }, name: 'project' }, { key: { remote: 1 }, name: 'remote' }, { key: { orgId: 1, ownerId: 1 }, name: 'org_owner' }]],
     ['workerJobs', [{ key: { deviceId: 1, doneAt: 1, createdAt: 1 }, name: 'device_pending' }, { key: { createdAt: 1 }, name: 'created_ttl', expireAfterSeconds: 30 * 86_400 }]],
     ['workerSessions', [{ key: { projectId: 1, updatedAt: -1 }, name: 'project_updated' }, { key: { deviceId: 1, state: 1 }, name: 'device_state' }, { key: { 'runKey.hash': 1 }, unique: true, name: 'run_key_hash', partialFilterExpression: { 'runKey.hash': { $type: 'string' } } }]],
     ['policyEvents', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 2 * 3600 }, { key: { keyId: 1, kind: 1, at: -1 }, name: 'key_kind_at' }]],

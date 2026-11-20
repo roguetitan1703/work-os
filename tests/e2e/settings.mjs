@@ -76,17 +76,18 @@ await runAssertSuite('settings', async () => {
       assert.equal((await p.locator('[data-title-row] h1').innerText()).trim(), 'Account');
       const fs = await p.locator('[data-title-row] h1').evaluate(e => getComputedStyle(e).fontSize);
       assert.equal(fs, '24px', 'title is 24px');
-      // search filters the list
-      const q = p.locator('[data-settings-search]');
-      await q.fill('quiet');
-      assert.deepEqual(await p.locator('nav a[data-section]').evaluateAll(es => es.map(e => e.getAttribute('data-section'))), ['notifications'], 'search "quiet" leaves Notifications');
-      await q.fill('invite');
-      assert.deepEqual(await p.locator('nav a[data-section]').evaluateAll(es => es.map(e => e.getAttribute('data-section'))), ['team'], 'search "invite" leaves Team');
-      await q.fill('zzzz');
-      assert.equal(await p.locator('nav a[data-section]').count(), 0); assert.equal(await p.locator('[data-settings-nomatch]').count(), 1);
-      await q.fill('');
-      assert.equal(await p.locator('nav a[data-section]').count(), 7, 'all seven sections for the operator');
-      await q.fill('server'); await q.press('Enter'); await p.waitForURL(/section=server/);
+      // search: the button opens the global search on Settings, which finds each setting by name
+      const gs = p.locator('input[aria-controls=global-search-results]');
+      const hits = () => p.locator('#global-search-results [role=option][data-kind=settings]').allInnerTexts();
+      await p.locator('[data-settings-search]').click(); await gs.waitFor();
+      assert.equal(await p.locator('[data-filter=settings][aria-pressed=true]').count(), 1, 'opens on Settings');
+      await gs.fill('quiet'); await p.waitForTimeout(300);
+      assert.ok((await hits())[0]?.includes('Quiet hours'), 'search "quiet": Quiet hours first: ' + (await hits()).join(' | '));
+      await gs.fill('invite'); await p.waitForTimeout(300);
+      assert.ok((await hits()).some(t => t.includes('Invite people')), 'search "invite": Invite people');
+      await gs.fill('zzzz'); await p.waitForTimeout(900);
+      assert.equal((await hits()).length, 0, 'no setting for zzzz');
+      await gs.fill('server'); await p.waitForTimeout(300); await gs.press('Enter'); await p.waitForURL(/section=server/);
       console.log('desktop search ok');
     }
     await noOverflow('settings root');
