@@ -2,6 +2,7 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import { bearerToken, urlTokenAllowed } from '@/lib/auth';
 import { after } from 'next/server';
 import { acquireMcpServer } from '@/lib/mcp/pool';
+import { syncTestHiddenTool } from '@/lib/mcp/server';
 import type { Caller } from '@/lib/mcp/policy';
 import { flushQueuedAlerts } from '@/lib/alerts';
 import { markSeen } from '@/lib/notify';
@@ -67,31 +68,136 @@ function unauthorized(req: Request): Response {
   return Response.json({ jsonrpc: '2.0', error: { code: -32001, message: 'Unauthorized' }, id: null }, { status: 401, headers: { 'WWW-Authenticate': challenge, 'Cache-Control': 'no-store' } });
 }
 
+// Claude Code reads a server's tool list once, when it connects, so a long-running session never saw tools added later (and
+// kept removed ones). The server says tools can change (capability tools.listChanged), and a Claude Code session's start_work
+// (also the one after a compaction) and get_state are answered as a short SSE stream: notifications/tools/list_changed first,
+// then the result. Claude Code then reads tools/list again. Only for Claude Code itself (mayRelist: its User-Agent, after the
+// MCP handshake) and not for the Work OS hook (X-Work-OS-Hook; installed hooks read the first data line as the answer).
+// Every other request, the claude.ai connector's and other apps' included, stays one JSON answer as before.
+const RELIST_ON = new Set(['start_work', 'get_state']);
+const PEEK_MAX = 64 * 1024;
+const LIST_CHANGED = { jsonrpc: '2.0' as const, method: 'notifications/tools/list_changed' };
+
+/** The JSON-RPC body, read from a copy of the request (the transport reads the original), or null past PEEK_MAX or unreadable. */
+async function peekBody(req: Request): Promise<unknown> {
+  const reader = req.clone().body?.getReader();
+  if (!reader) return null;
+  const parts: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > PEEK_MAX) {
+        void reader.cancel().catch(() => {});
+        return null;
+      }
+      parts.push(value);
+    }
+    return JSON.parse(Buffer.concat(parts).toString('utf8'));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Claude Code itself after the MCP handshake: a Claude Code caller (key, run key or a non-claude.ai OAuth client) whose
+ * User-Agent is Claude Code's ("claude-code/2.1.327 (...)"), that sent Mcp-Protocol-Version, and is not the Work OS hook.
+ * Only it gets start_work and get_state as SSE: another app or script on such a key may read only the first data line.
+ */
+function mayRelist(req: Request, caller: Authorized): boolean {
+  return caller.agent === 'claude-code' && /^claude-code\//.test(req.headers.get('user-agent') ?? '') && !!req.headers.get('mcp-protocol-version') && !req.headers.get('x-work-os-hook');
+}
+
+/** The id of a tools/call of start_work or get_state (one message, not a batch), or null. */
+function relistId(body: unknown): string | number | null {
+  const m = body as { method?: unknown; id?: unknown; params?: { name?: unknown } } | null;
+  if (!m || typeof m !== 'object' || Array.isArray(m) || m.method !== 'tools/call' || typeof m.params?.name !== 'string' || !RELIST_ON.has(m.params.name)) return null;
+  return typeof m.id === 'string' || typeof m.id === 'number' ? m.id : null;
+}
+
+/** The SSE body, with release() once it is complete (the server goes back to the pool) or dropped by the client (closed, not kept). */
+function releaseWhenDone(body: ReadableStream<Uint8Array>, release: (discard?: boolean) => Promise<void>): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  let done = false;
+  const finish = (discard: boolean) => {
+    if (done) return;
+    done = true;
+    void release(discard);
+  };
+  return new ReadableStream<Uint8Array>({
+    async pull(c) {
+      try {
+        const r = await reader.read();
+        if (r.done) {
+          c.close();
+          finish(false);
+        } else c.enqueue(r.value);
+      } catch (err) {
+        c.error(err);
+        finish(true);
+      }
+    },
+    cancel(reason) {
+      finish(true);
+      return reader.cancel(reason);
+    },
+  });
+}
+
 async function handle(req: Request, ctx: Ctx): Promise<Response> {
   const caller = await authorize(req, ctx);
   if (!caller) return unauthorized(req);
   const base = baseUrl(req);
+  const trace = process.env.E2E_MCP_TRACE === '1'; // tests only: one log line per request (tests/e2e/mcp-relist.mjs)
+  const eligible = mayRelist(req, caller);
+  const body = eligible || trace ? await peekBody(req) : null;
+  const relist = eligible ? relistId(body) : null;
+  if (trace) {
+    const m = body as { method?: string; params?: { name?: string } } | null;
+    console.log(`[mcp trace] ${caller.agent} ${Array.isArray(m) ? 'batch' : (m?.method ?? '?')}${m?.params?.name ? ` ${m.params.name}` : ''} -> ${relist === null ? 'json' : 'sse+list_changed'} (${(req.headers.get('user-agent') ?? '').slice(0, 24)})`);
+  }
   const { server, release } = await acquireMcpServer(base, caller);
+  syncTestHiddenTool(server);
   const scope = { userId: caller.userId, orgId: caller.orgId };
   after(() => Promise.all([flushQueuedAlerts(scope, base), caller.agent === 'claude' ? markSeen(scope, 'mcp') : undefined]));
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
-    enableJsonResponse: true,
+    enableJsonResponse: relist === null,
   });
   await server.connect(transport);
+  if (relist !== null) {
+    const deliver = transport.onmessage;
+    transport.onmessage = (message, extra) => {
+      // Written to the request's stream before the call runs, so it always comes before the result. With no event store the
+      // transport writes it synchronously; a client that ignores it still gets the result next.
+      if ('method' in message && 'id' in message && message.id === relist) void transport.send(LIST_CHANGED, { relatedRequestId: relist }).catch(() => {});
+      deliver?.(message, extra);
+    };
+  }
   const rc: RequestContext =
     caller.agent === 'claude-code'
       ? { userId: caller.userId, tz: caller.tz, session: sessionHeader(req.headers.get('x-work-os-session')), repo: repoHeader(req.headers.get('x-work-os-repo')), sid: sessionHeader(req.headers.get('x-work-os-session')), hook: hookHeader(req.headers.get('x-work-os-hook')), keyId: caller.keyId, ...(caller.dispatched ? { dispatched: { taskId: caller.dispatched.taskId, ref: caller.dispatched.ref } } : {}) }
       : { userId: caller.userId, tz: caller.tz, sid: sessionHeader(req.headers.get('x-work-os-session')), hook: hookHeader(req.headers.get('x-work-os-hook')), keyId: caller.keyId };
+  let res: Response;
   try {
-    return await runWithRequestContext(rc, () => transport.handleRequest(req));
-  } finally {
-    // JSON responses are fully materialised: close the transport and keep the server for the next call.
+    res = await runWithRequestContext(rc, () => transport.handleRequest(req));
+  } catch (err) {
     void release();
+    throw err;
   }
+  // JSON responses are fully materialised: close the transport and keep the server for the next call. The SSE answer
+  // (start_work, get_state above) gives the server back once its stream has carried the result.
+  if (relist === null || !res.body || !res.headers.get('content-type')?.startsWith('text/event-stream')) {
+    void release();
+    return res;
+  }
+  return new Response(releaseWhenDone(res.body, release), { status: res.status, headers: res.headers });
 }
 
-// No standalone SSE stream and no sessions (stateless, JSON responses): GET and DELETE are 405 with Allow: POST, with no
+// No standalone SSE stream and no sessions (stateless; JSON responses, except the short per-request stream of start_work and
+// get_state above): GET and DELETE are 405 with Allow: POST, with no
 // database work. Handing GET a stream that closed at once made MCP clients reconnect about once a second, forever; the SDK
 // client treats 405 on GET as "this server has no stream" and stops. A request with no credential at all still gets the 401
 // challenge (OAuth discovery), which costs nothing either; POST is the only method that does the credential check.

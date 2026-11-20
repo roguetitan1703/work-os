@@ -13,6 +13,7 @@ import {
   stateItems,
   type Due,
   type DeclutterItem,
+  NO_DECLUTTER_TOOL,
 } from '../declutter-core';
 
 // Declutter, the database half (docs/flows/agent-system.md section 7, H11). Every read goes through scoped(s), so a proposal never
@@ -130,8 +131,11 @@ export async function buildProposal(s: Scope, project: ProjectDoc, now = new Dat
   };
 }
 
-/** The start brief's and end_work's one field: `{ declutter: "Declutter due: ..." }`, or nothing. */
-export async function briefField(s: Scope, project: ProjectDoc, state: StateDoc | null): Promise<{ declutter?: string }> {
+/**
+ * The start brief's and end_work's one field: `{ declutter: "Declutter due: ..." }`, or nothing. A Claude Code caller's
+ * "due" line also says what to do when its tools do not list declutter (NO_DECLUTTER_TOOL); a claude.ai caller's does not.
+ */
+export async function briefField(s: Scope, project: ProjectDoc, state: StateDoc | null, claudeCode: boolean): Promise<{ declutter?: string }> {
   const d = await dueFor(s, project, state);
-  return d.text ? { declutter: d.text } : {};
+  return d.text ? { declutter: d.due && claudeCode ? `${d.text} ${NO_DECLUTTER_TOOL}` : d.text } : {};
 }

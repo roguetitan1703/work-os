@@ -1,5 +1,6 @@
 import 'server-only';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer, type RegisteredTool } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { readFileSync } from 'node:fs';
 import { z, ZodError } from 'zod';
 import * as tasks from '../data/tasks';
 import * as projects from '../data/projects';
@@ -626,7 +627,7 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
     // After a pick-up the Now hold may just have moved to this session: read it again.
     holdsNow: stateData.holdsNowOf(picked?.move?.moved ? (await stateData.getState(s, key)).state : state, rowKey(row)),
     lanes: await lanesFor(s, project._id, names, rowKey(row)),
-    ...(await declutterData.briefField(s, project, state)),
+    ...(await declutterData.briefField(s, project, state, ctx.caller.agent === 'claude-code')),
     inbox: inb.messages.length ? { unread: inb.unread, messages: inb.messages.map(m => messageData.messageOut(m, s.userId, names, { cut: 500, unread: inb.unreadIds.has(m._id) })) } : 'no messages',
     openTasks: { total: open.length, tasks: open.slice(0, 25).map(t => briefTask(t, pn, { baseUrl: ctx.baseUrl, who })), ...(open.length > 25 ? { more: `${open.length - 25} more: list_tasks project:"${project.name}"` } : {}) },
     alsoHere: others.length ? others : 'nobody else in the last 30 minutes',
@@ -676,6 +677,28 @@ async function needOutOf(ctx: BriefCtx, n: needsData.Need) {
 
 const HANDOVER_LIST = z.array(z.string().trim().min(1).max(handovers.HANDOVER_CAPS.item)).max(handovers.HANDOVER_CAPS.items);
 
+/**
+ * Tests only: E2E_HIDDEN_TOOL_FILE (set by tests/e2e/run.sh, never in production) names a file; while it holds a tool name,
+ * that tool is left out of tools/list and refused, as if the server did not have it yet. The tests use it to play a session
+ * that connected before a tool existed (tests/e2e/mcp-relist.mjs). Unset, nothing is kept and the sync below does nothing.
+ */
+const testTools = new WeakMap<McpServer, Map<string, RegisteredTool>>();
+export function syncTestHiddenTool(server: McpServer): void {
+  const file = process.env.E2E_HIDDEN_TOOL_FILE;
+  const tools = file ? testTools.get(server) : undefined;
+  if (!file || !tools) return;
+  let hidden = '';
+  try {
+    hidden = readFileSync(file, 'utf8').trim();
+  } catch {
+    // no file: nothing hidden
+  }
+  for (const [n, t] of tools) {
+    if (n === hidden && t.enabled) t.disable();
+    else if (n !== hidden && !t.enabled) t.enable();
+  }
+}
+
 export function createMcpServer(ctx: Ctx): McpServer {
   const caller = ctx.caller;
   const s = callerScope(caller);
@@ -711,8 +734,10 @@ export function createMcpServer(ctx: Ctx): McpServer {
     const old = h ? h < 2 : (await readerRow(s, identOf('save_state', [a])))?.hook === 1;
     return old ? stateData.stateCopy(s, project, state, ctx.baseUrl) : undefined;
   };
-  const tool = ((name: ToolName, config: object, cb: (...a: unknown[]) => unknown) =>
-    server.registerTool(
+  const testTools_ = process.env.E2E_HIDDEN_TOOL_FILE ? new Map<string, RegisteredTool>() : undefined;
+  if (testTools_) testTools.set(server, testTools_);
+  const tool = ((name: ToolName, config: object, cb: (...a: unknown[]) => unknown) => {
+    const registered = server.registerTool(
       name,
       { ...config, inputSchema: { ...(config as { inputSchema?: object }).inputSchema, session: sessionArg }, title: TOOLS[name].title, description: TOOLS[name].description },
       (async (...a: unknown[]) => {
@@ -747,7 +772,10 @@ export function createMcpServer(ctx: Ctx): McpServer {
         if ((res as { isError?: boolean } | null)?.isError && name !== 'feedback') noteRefusal(sessionKey(ident), name, rc.failKind ?? 'internal');
         return forYouAfter(pending, name, TOOLS[name].writes, res);
       }) as never,
-    )) as unknown as typeof server.registerTool;
+    );
+    testTools_?.set(name, registered);
+    return registered;
+  }) as unknown as typeof server.registerTool;
 
   tool(
     'list_tasks',
@@ -1526,7 +1554,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         ...(archivedHandovers.length ? { archivedHandovers } : {}),
         ...(handover ? { handover } : {}),
         ...(handoverError ? { handoverError } : {}),
-        ...(await declutterData.briefField(s, r.project, r.state)),
+        ...(await declutterData.briefField(s, r.project, r.state, caller.agent === 'claude-code')),
       };
     }),
   );
