@@ -6,15 +6,27 @@
 // look (the server also ends the older call). It never wakes a session whose marker says working, ends 2 minutes before the hook's
 // timeout (no heartbeat: after that a message waits for the next turn), backs off 30 s up to 5 min on an error or the hourly
 // limit, and never prints the token. No token (no worker sign-in, a cloud session): nothing to wait for.
+// It waits only while the Claude Code process that started it lives: that process is found once at the start (CLAUDE_PID, which
+// Claude Code puts in its hooks' environment; else the nearest claude ancestor, past any cmd or bash shim) and checked before every
+// poll and every 2 s while a poll is open. Gone: the open poll is cancelled (the server offers nothing to a cancelled call) and the
+// wait ends with exit 0, so no message is taken for a dead session. A `claude -p` or Agent SDK run (CLAUDE_CODE_ENTRYPOINT sdk-cli,
+// sdk-ts, sdk-py: Claude Code sets sdk-cli for -p itself) has nobody to wake: no wait at all, so the run can exit.
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { EVENTS, HERE, MAX_BRIEF, postAgent, readKept, readMarker, run, writeMarker } from './hook-lib.mjs';
+import { EVENTS, HERE, MAX_BRIEF, claudeProcess, postAgent, quietRun, readKept, readMarker, run, writeMarker } from './hook-lib.mjs';
 
 const POLL_TIMEOUT_MS = 55_000; // the server holds a poll 50 s
 const LEAVE_S = 120;
 const SETTLE_TRIES = 6; // a turn that just ended may still say working for a moment (the stop hook posts in parallel)
 const SETTLE_MS = 2_000;
+/** The Claude Code process this wait belongs to: found once, then checked (what tests replace). */
+export const parent = {
+  quiet: quietRun,
+  find: (env = process.env) => (/^\d{1,10}$/.test(env.CLAUDE_PID || '') && Number(env.CLAUDE_PID) > 0 ? { pid: Number(env.CLAUDE_PID) } : claudeProcess(env)),
+  alive: (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } },
+  everyMs: 2_000,
+};
 /** What tests replace to run fast. */
 export const clock = { sleep: (ms) => new Promise((r) => setTimeout(r, ms)), now: () => Date.now(), backoffStart: 30_000, backoffMax: 300_000 };
 
@@ -34,7 +46,11 @@ export async function wait(input) {
   const sid = input.session_id;
   if (!sid || input.agent_id) return null;
   const token = readKept(sid);
-  if (!token) return null;
+  if (!token || parent.quiet()) return null;
+  let owner = null;
+  try { owner = parent.find(); } catch { owner = null; }
+  // No process found (an unknown shell, a platform without ps): wait as before, bounded by the hook's timeout.
+  const gone = () => !!owner && !parent.alive(owner.pid);
   const row = EVENTS.find((e) => e.event === 'wait');
   const end = clock.now() + ((row?.timeoutS ?? 3600) - LEAVE_S) * 1000;
   const lock = takeLock(sid);
@@ -43,6 +59,7 @@ export async function wait(input) {
   try {
     for (;;) {
       if (!holds(sid, lock)) return null; // a newer waiter took over
+      if (gone()) return null; // the session's Claude Code process ended: nobody to wake, take nothing
       if (clock.now() + POLL_TIMEOUT_MS > end) return null;
       if (working(sid)) {
         if (++settle > SETTLE_TRIES) return null; // a turn is running: delivery inside it has the messages
@@ -52,7 +69,11 @@ export async function wait(input) {
       let r = null;
       const ack = readMarker(sid)?.ack;
       const sent = Array.isArray(ack) && ack.length ? ack.slice(0, 12) : null;
-      try { r = await postAgent('/api/agent/wait', token, sent ? { ack: sent } : {}, POLL_TIMEOUT_MS); } catch { r = null; }
+      const stop = new AbortController();
+      const watch = owner ? setInterval(() => { if (gone()) stop.abort(); }, parent.everyMs) : null;
+      watch?.unref?.();
+      try { r = await postAgent('/api/agent/wait', token, sent ? { ack: sent } : {}, POLL_TIMEOUT_MS, stop.signal); } catch { r = null; } finally { if (watch) clearInterval(watch); }
+      if (stop.signal.aborted || gone()) return null; // it ended while the poll was open: a wake that still came is not printed
       if (sent && r?.status === 200) { const k = readMarker(sid); if (k) { delete k.ack; writeMarker(sid, k); } }
       if (!holds(sid, lock)) return null;
       if (r?.status === 200 && r.b) {

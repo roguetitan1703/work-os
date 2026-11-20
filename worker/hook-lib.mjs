@@ -360,7 +360,7 @@ export async function mcpCall(name, args) {
  * token). Returns { status, b } (b is the JSON answer on 200, else null), or null when this copy is not installed. Never
  * follows a redirect, so the credential cannot be sent to another address.
  */
-export async function postAgent(apiPath, cred, body, timeoutMs = TIMEOUT_MS) {
+export async function postAgent(apiPath, cred, body, timeoutMs = TIMEOUT_MS, signal = null) {
   const home = workerHome();
   if (!home) return null;
   const base = checkBaseUrl(loadConfig(home).baseUrl);
@@ -368,7 +368,7 @@ export async function postAgent(apiPath, cred, body, timeoutMs = TIMEOUT_MS) {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${cred}`, ...hookHeaders() },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(timeoutMs),
+    signal: signal ? AbortSignal.any([AbortSignal.timeout(timeoutMs), signal]) : AbortSignal.timeout(timeoutMs),
     redirect: 'error',
   });
   let b = null;
