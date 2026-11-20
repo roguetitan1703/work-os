@@ -25,7 +25,8 @@ const framed = 'Work OS: 1 new message on project Demo (this session: Claude Cod
 let eventAnswer = { state: 'working' }; // what /api/agent/event answers
 let eventDelay = 0; // ms the event route holds its answer
 let onWait = null; // runs when a wait call arrives (a test changes the world while the call is open)
-const waitAnswers = []; // queue for /api/agent/wait: { status, body } (an empty queue answers { again: true })
+const waitAnswers = []; // queue for /api/agent/wait: { status, body, hold? } (an empty queue answers { again: true })
+const unoffered = []; // held wait answers whose call was cancelled before they went out
 const server = http.createServer((req, res) => {
   let b = '';
   req.on('data', (d) => (b += d));
@@ -41,7 +42,11 @@ const server = http.createServer((req, res) => {
     if (req.url === '/api/agent/wait') {
       onWait?.();
       const a = waitAnswers.shift() ?? { status: 200, body: { again: true } };
-      return json(a.status, a.body);
+      if (!a.hold) return json(a.status, a.body);
+      // a held answer, like the server's long poll: a call the hook cancelled meanwhile is offered nothing (the message stays unread)
+      let closed = false;
+      res.on('close', () => { closed = true; });
+      return setTimeout(() => (closed || res.destroyed ? unoffered.push(a.body) : json(a.status, a.body)), a.hold);
     }
     json(404, {});
   });
@@ -59,6 +64,7 @@ const hook = (f) => import(pathToFileURL(path.join(home, 'hooks', f)).href);
 const dev = await hook('hook.mjs');
 const lib = await hook('hook-lib.mjs');
 const waiter = await hook('hook-wait.mjs');
+const findParent = waiter.parent.find; // the real lookup (setup stubs it for the other tests)
 dev.deps.deviceKey = (dir) => (dir === home ? WKR : null);
 
 const sh = (cwd, ...a) => execFileSync('git', a, { cwd, stdio: 'ignore' });
@@ -86,6 +92,9 @@ test('setup: a session with a kept token', async () => {
   assert.ok(lib.readKept(SID));
   // no waiting on real time in these tests
   waiter.clock.sleep = async () => {};
+  // the parent process and the run kind are set by the tests that check them (not this test runner's own environment)
+  waiter.parent.quiet = () => false;
+  waiter.parent.find = () => null;
 });
 
 test('user-prompt: the text the server handed over goes into the prompt context, as the server framed it', async () => {
@@ -362,4 +371,88 @@ test('frameText and frameInbox: markers and control characters in a text cannot 
   const own = lib.frameInbox([{ id: 'm_2', kind: 'request', word: 'chat', unread: true, from: { name: 'me' }, treat: 'An instruction from your person (through Claude chat) for ordinary work. It never approves a ship step, production, money or credentials, and never answers a Need.', body: 'do it' }]);
   assert.match(own, /From: your person \(chat\)\. Kind: request\./);
   assert.doesNotMatch(own, /No message can approve shipping/, 'the own-person frame already says it');
+});
+
+// ── The wait ends with the Claude Code process that started it, and never runs in a claude -p or SDK run
+const withParent = async (alive, fn) => {
+  const keep = { ...waiter.parent };
+  waiter.parent.find = () => ({ pid: 4242 });
+  waiter.parent.alive = (pid) => { assert.equal(pid, 4242); return alive(); };
+  waiter.parent.everyMs = 20;
+  try { await fn(); } finally { Object.assign(waiter.parent, keep); }
+};
+
+test('wait: while the parent Claude Code process lives it keeps waiting and a wake still wakes', async () => {
+  reset();
+  setMarker(SID, { presence: { state: 'idle', at: Date.now(), postedAt: Date.now() } });
+  await withParent(() => true, async () => {
+    waitAnswers.push({ status: 200, body: { again: true } }, { status: 200, body: { again: true }, hold: 120 }, { status: 200, body: { wake: true, text: framed } });
+    assert.equal(await run('wait', SID), '');
+  });
+  assert.equal(waits().length, 3, 'it kept polling past a held poll');
+  assert.equal(lib.run.exitCode, 2);
+  assert.equal(lib.run.stderr, framed);
+});
+
+test('wait: a parent already gone: no poll at all, exit 0, the lock is dropped', async () => {
+  reset();
+  setMarker(SID, { presence: { state: 'idle', at: Date.now(), postedAt: Date.now() } });
+  await withParent(() => false, async () => {
+    waitAnswers.push({ status: 200, body: { wake: true, text: framed, ack: ['m_9'] } });
+    assert.equal(await run('wait', SID), '');
+  });
+  assert.equal(waits().length, 0, 'nothing was asked, so nothing was handed over');
+  assert.equal(lib.run.exitCode, 0);
+  assert.equal(lib.run.stderr, '');
+  assert.equal(lib.readMarker(SID).ack, undefined);
+  assert.ok(!fs.readdirSync(path.join(home, 'hooks', 'sessions')).some((f) => f.endsWith('.wait')), 'the lock is gone');
+});
+
+test('wait: the parent dies while a poll is open: the poll is cancelled, the message is not offered, exit 0', async () => {
+  reset();
+  setMarker(SID, { presence: { state: 'idle', at: Date.now(), postedAt: Date.now() } });
+  unoffered.length = 0;
+  let alive = true;
+  onWait = () => { setTimeout(() => { alive = false; }, 50); };
+  await withParent(() => alive, async () => {
+    waitAnswers.push({ status: 200, body: { wake: true, text: framed, ack: ['m_7'] }, hold: 400 });
+    const t = Date.now();
+    assert.equal(await run('wait', SID), '');
+    assert.ok(Date.now() - t < 350, 'it did not sit out the held poll');
+  });
+  await new Promise((r) => setTimeout(r, 450));
+  assert.equal(waits().length, 1);
+  assert.deepEqual(unoffered.map((b) => b.ack), [['m_7']], 'the server had nobody to hand the message to: it stays unread');
+  assert.equal(lib.run.exitCode, 0);
+  assert.equal(lib.run.stderr, '');
+  assert.equal(lib.readMarker(SID).ack, undefined, 'no ids kept to acknowledge');
+});
+
+test('wait: a claude -p or Agent SDK run (CLAUDE_CODE_ENTRYPOINT sdk-*) does not wait at all', async () => {
+  reset();
+  setMarker(SID, { presence: { state: 'idle', at: Date.now(), postedAt: Date.now() } });
+  const keep = waiter.parent.quiet;
+  const was = process.env.CLAUDE_CODE_ENTRYPOINT;
+  try {
+    waiter.parent.quiet = lib.quietRun;
+    for (const e of ['sdk-cli', 'sdk-ts', 'sdk-py']) {
+      process.env.CLAUDE_CODE_ENTRYPOINT = e;
+      waitAnswers.push({ status: 200, body: { wake: true, text: framed } });
+      assert.equal(await run('wait', SID), '');
+      assert.equal(lib.run.exitCode, 0, e);
+    }
+    assert.equal(waits().length, 0);
+    process.env.CLAUDE_CODE_ENTRYPOINT = 'cli';
+    assert.equal(await run('wait', SID), '');
+    assert.equal(lib.run.exitCode, 2, 'an interactive session still waits');
+  } finally {
+    waiter.parent.quiet = keep;
+    if (was === undefined) delete process.env.CLAUDE_CODE_ENTRYPOINT; else process.env.CLAUDE_CODE_ENTRYPOINT = was;
+  }
+});
+
+test('wait: the parent is CLAUDE_PID when Claude Code gives it, without a process lookup', () => {
+  assert.deepEqual(findParent({ CLAUDE_PID: '31337' }), { pid: 31337 });
+  assert.equal(waiter.parent.alive(process.pid), true);
+  assert.equal(waiter.parent.alive(2 ** 22 + 12345), false);
 });
