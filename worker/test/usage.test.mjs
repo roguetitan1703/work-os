@@ -223,6 +223,23 @@ test('collectUsage: events over the limit of one report wait; an unreported scan
   } finally { fs.rmSync(t.root, { recursive: true, force: true }); }
 });
 
+test('collectUsage: peakCtx is the largest context of any call in the bucket, kept across reports (context warning, note 3e92845ac0)', () => {
+  const t = tree();
+  try {
+    const own = acctFile(t.root);
+    const m = (id, ts, input, cr, cw) => JSON.stringify({ type: 'assistant', timestamp: ts, requestId: 'r' + id, message: { id, model: 'claude-opus-4', content: [], usage: { input_tokens: input, cache_creation_input_tokens: cw, cache_read_input_tokens: cr, output_tokens: 2 } } });
+    fs.writeFileSync(t.main, lines(m('p1', '2026-11-20T09:01:00Z', 5, 90_000, 1000), m('p2', '2026-11-20T09:02:00Z', 5, 160_000, 2000)));
+    const st = {};
+    const a = collectUsage({ accountFile: own, st, root: t.root, tz: 'UTC', now: NOW });
+    assert.equal(a.buckets.length, 1);
+    assert.equal(a.buckets[0].peakCtx, 162_005);
+    a.commit();
+    fs.appendFileSync(t.main, lines(m('p3', '2026-11-20T09:03:00Z', 5, 100_000, 0)));
+    const b = collectUsage({ accountFile: own, st, root: t.root, tz: 'UTC', now: NOW + 1000 });
+    assert.equal(b.buckets[0].peakCtx, 162_005, 'a smaller later call does not lower the peak');
+  } finally { fs.rmSync(t.root, { recursive: true, force: true }); }
+});
+
 test('collectUsage: 5-minute buckets (floored, cw1h, message count), newest first, bounded, only the last 7 days', () => {
   const t = tree();
   const t2 = tree();
@@ -240,6 +257,7 @@ test('collectUsage: 5-minute buckets (floored, cw1h, message count), newest firs
       ['2026-11-20T09:00:00.000Z', 2, 20, 10, 200, 4, 2],
     ]);
     assert.equal(a.buckets[0].acct, hash(UUID));
+    assert.deepEqual(a.buckets.map((x) => x.peakCtx), [111, 111], 'peakCtx: input + cache write + cache read of the largest call');
     a.commit();
     fs.appendFileSync(t.main, lines(m('b4', '2026-11-20T09:06:00Z', 3)));
     const b = collectUsage({ accountFile: own, st, root: t.root, tz: 'UTC', now: NOW + 1000 });

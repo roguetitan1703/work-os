@@ -15,6 +15,7 @@ import * as tasks from '@/lib/data/tasks';
 import * as projects from '@/lib/data/projects';
 import * as production from '@/lib/data/production';
 import * as nudges from '@/lib/data/nudges';
+import * as contextWarn from '@/lib/data/context-warn';
 import { InputError, NotFoundError } from '@/lib/data/errors';
 import type {
   Activity,
@@ -154,6 +155,11 @@ export async function setProductionAction(projectId: string, input: production.P
 /** Nudges on a project (note ce434ed759): whether Work OS asks its Claude sessions to move on when work is left. The app only, never an agent's tool. */
 export async function setNudgesAction(projectId: string, on: boolean): Promise<Result<boolean>> {
   return run(s => nudges.setNudges(s, String(projectId), on === true));
+}
+
+/** Context warning on a project (note 3e92845ac0): 150, 200 or null (off). The app only, never an agent's tool. */
+export async function setContextWarnAction(projectId: string, line: number | null): Promise<Result<contextWarn.ContextWarn | null>> {
+  return run(s => contextWarn.setContextWarn(s, String(projectId), typeof line === 'number' ? line : null));
 }
 
 // ── Session ─────────────────────────────────────────────────────────────────

@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'context-warning',
+    date: '2026-11-21',
+    title: 'Context warning per project',
+    line: 'Set a size (150k or 200k) and Claude is told to write a code-map note and stop when its context grows past it.',
+    where: 'A project › Info › Context warning',
+    href: '/projects',
+  },
+  {
     id: 'parked-decisions-no-limit',
     date: '2026-11-21',
     title: 'Parked and Decisions have no limit',

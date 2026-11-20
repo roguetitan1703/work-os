@@ -247,7 +247,8 @@ export function collectUsage({ st, root = defaultProjectsRoot(), tz, now = Date.
       if (t >= firstBucket) {
         const bk0 = new Date(Math.floor(t / BUCKET_MS) * BUCKET_MS).toISOString();
         const bkey = `${f.sid}|${f.part}|${rec.model}|${bk0}`;
-        const b = bk[bkey] || (bk[bkey] = { ...(st.bk && st.bk[bkey] ? st.bk[bkey] : { i: 0, cw: 0, cw1h: 0, cr: 0, o: 0, n: 0 }) });
+        const b = bk[bkey] || (bk[bkey] = { ...(st.bk && st.bk[bkey] ? st.bk[bkey] : { i: 0, cw: 0, cw1h: 0, cr: 0, o: 0, n: 0, pk: 0 }) });
+        b.pk = Math.max(b.pk || 0, rec.i + rec.cw + rec.cr); // the largest context one call carried (the context warning, note 3e92845ac0)
         b.i += rec.i; b.cw += rec.cw; b.cw1h += extra.cw1h; b.cr += rec.cr; b.o += rec.o; b.n += 1; b.d = 1; b.acct = acct; // the latest account wins
       }
     }
@@ -288,7 +289,7 @@ export function collectUsage({ st, root = defaultProjectsRoot(), tz, now = Date.
   const buckets = bSend.map((k) => {
     const [sessionId, part, model, at] = k.split('|');
     const b = bk[k] || st.bk[k];
-    return { sessionId, part, model, at, acct: b.acct || '', i: b.i, cw: b.cw, cw1h: b.cw1h, cr: b.cr, o: b.o, n: b.n };
+    return { sessionId, part, model, at, acct: b.acct || '', i: b.i, cw: b.cw, cw1h: b.cw1h, cr: b.cr, o: b.o, n: b.n, peakCtx: b.pk || 0 };
   });
   // Events: sent once; those over the limit of one report wait in st.ev.
   const evAll = [...(st.ev || []), ...evNew];

@@ -147,6 +147,8 @@ export type ProjectDoc = Placed & {
   production?: { remotes: string[]; branches: string[]; targets: string[]; off?: boolean };
   /** Nudges (lib/data/nudges.ts): false = Work OS does not nudge sessions of this project (the turn-end check, the idle nudge, the Declutter nudge). Unset = on. Set in the app only. */
   nudges?: boolean;
+  /** Context warning (lib/data/context-warn.ts): the line in k tokens (150 or 200) after which the pre-tool hook tells an agent of this project to write a code-map note and stop. Unset = off. Set in the app only. */
+  contextWarn?: 150 | 200;
   /** Who last set `production`. */
   productionBy?: string;
   /** The Delpat OS project it was imported from (lib/delpat-os.ts); unique per organization among shared projects, per owner among private ones. */
@@ -616,7 +618,7 @@ export type RunKeyDoc = { hash: string; keyHash: string; ref: number; at: Date; 
  */
 export type ClaudeUsageDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; sessionId: string; part: string; partName?: string; model: string; day: string; dayAt: Date; i: number; cw: number; cr: number; o: number; title: string; folder: string; origin: SessionOrigin; updatedAt: Date; /** The Claude account (a hash, lib/data/claude-usage.ts) the day was used under. */ acct?: string; /** The organization's Orders version when it was written. */ ov?: number };
 /** Claude usage in 5-minute buckets (last 7 days; the plan of note e6036c777f): counts per computer, session, part, model and bucket start. Owner only; TTL 35 days on `at`. */
-export type ClaudeUsageBucketDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; sessionId: string; part: string; model: string; at: Date; acct: string; i: number; cw: number; cw1h: number; cr: number; o: number; n: number; ov: number; updatedAt: Date };
+export type ClaudeUsageBucketDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; sessionId: string; part: string; model: string; at: Date; acct: string; i: number; cw: number; cw1h: number; cr: number; o: number; n: number; /** The largest context one call carried in this bucket (input + cache read + cache write tokens). */ peakCtx?: number; ov: number; updatedAt: Date };
 /** A limit hit or a compaction seen in a transcript (never its text). Written once (a repeat changes nothing). Owner only; TTL 120 days on `at`. */
 export type ClaudeUsageEventDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; sessionId: string; part: string; kind: 'limit' | 'compact'; at: Date; acct: string; which?: '5h' | 'weekly' | 'other'; resetAt?: Date | null; trigger?: string; pre?: number; post?: number; ov: number; createdAt: Date };
 /** The label (the part of the email before @) of a Claude account id a worker reported. Owner only. */

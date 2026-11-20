@@ -14,11 +14,14 @@ import { B, ME, MCP, SP, check, finish, launch, login, makeUser, mkKey, openNeed
 import { must } from './flow-lib.mjs';
 
 fs.mkdirSync(SP, { recursive: true });
+// The entry the phone card's Try it taps: the third (the card shows three); its page is the entry's href in lib/whats-new.ts.
+const TRY = () => ALL[2];
+const TRY_PATH = () => new RegExp(`id: '${TRY()}',[^}]*?href: '([^']+)'`).exec(fs.readFileSync(new URL('../../lib/whats-new.ts', import.meta.url), 'utf8'))?.[1];
 const settle = (p, ms = 700) => p.waitForTimeout(ms);
 const seenOf = async () => (await rawDb.collection('settings').findOne({ _id: `profile:${ME.userId}` }))?.whatsNewSeen ?? [];
 const resetSeen = () => rawDb.collection('settings').updateOne({ _id: `profile:${ME.userId}` }, { $unset: { whatsNewSeen: '' } });
 const shot = (p, name) => p.screenshot({ path: `${SP}/whats-new-${name}.png`, fullPage: true });
-const ALL = ['parked-decisions-no-limit', 'needs-one-line', 'session-account', 'session-messages-direct', 'parked-list', 'sessions-first', 'claude-in-the-bar', 'one-search', 'transfer-declutter-commands', 'worker-updates-itself', 'task-place-chips', 'sessions-say-why', 'task-why', 'today-projects-now', 'project-goal-first', 'lanes', 'claude-moves-on', 'messages-to-sessions', 'sessions-everywhere', 'dispatcher-restart-once', 'notes-shelves', 'quiet-phone-monday-numbers', 'declutter-project', 'orders-versions', 'folder-decides-project', 'agents-feedback', 'agents-ask-before-production', 'messages-reach-sessions', 'claude-session-state', 'end-work-handover', 'pc-setup-one-go', 'needs-typed-answer', 'activity-everything', 'digest-redesign', 'hook-device-key', 'needs', 'results', 'state', 'messages']; // newest first; the entries that need mail or the intake are not shown here
+const ALL = ['context-warning', 'parked-decisions-no-limit', 'needs-one-line', 'session-account', 'session-messages-direct', 'parked-list', 'sessions-first', 'claude-in-the-bar', 'one-search', 'transfer-declutter-commands', 'worker-updates-itself', 'task-place-chips', 'sessions-say-why', 'task-why', 'today-projects-now', 'project-goal-first', 'lanes', 'claude-moves-on', 'messages-to-sessions', 'sessions-everywhere', 'dispatcher-restart-once', 'notes-shelves', 'quiet-phone-monday-numbers', 'declutter-project', 'orders-versions', 'folder-decides-project', 'agents-feedback', 'agents-ask-before-production', 'messages-reach-sessions', 'claude-session-state', 'end-work-handover', 'pc-setup-one-go', 'needs-typed-answer', 'activity-everything', 'digest-redesign', 'hook-device-key', 'needs', 'results', 'state', 'messages']; // newest first; the entries that need mail or the intake are not shown here
 
 const b = await launch();
 try {
@@ -61,13 +64,13 @@ try {
 
       // Try it marks that one seen and goes there
       // (the second entry: its card is one of the three on the phone)
-      await card.locator('[data-whats-new-try="session-account"]').tap();
-      await p.waitForURL(u => u.pathname === '/claude', { timeout: 10000 });
-      check('Try it: opens where the feature lives (/claude)', new URL(p.url()).pathname === '/claude');
-      check('Try it: marks only that entry seen', JSON.stringify(await seenOf()) === JSON.stringify(['session-account']), JSON.stringify(await seenOf()));
+      await card.locator(`[data-whats-new-try="${TRY()}"]`).tap();
+      await p.waitForURL(u => u.pathname === TRY_PATH(), { timeout: 10000 });
+      check(`Try it: opens where the feature lives (${TRY_PATH()})`, new URL(p.url()).pathname === TRY_PATH());
+      check('Try it: marks only that entry seen', JSON.stringify(await seenOf()) === JSON.stringify([TRY()]), JSON.stringify(await seenOf()));
       await p.goto(B + '/today'); await settle(p);
       const ids2 = await p.locator('[data-section="whats-new"]:visible [data-whats-new]').evaluateAll(els => els.map(e => e.getAttribute('data-whats-new')));
-      check('phone Today card: the tried entry is gone, the rest stay', JSON.stringify(ids2) === JSON.stringify(ALL.filter(x => x !== 'session-account').slice(0, 3)), JSON.stringify(ids2));
+      check('phone Today card: the tried entry is gone, the rest stay', JSON.stringify(ids2) === JSON.stringify(ALL.filter(x => x !== TRY()).slice(0, 3)), JSON.stringify(ids2));
       await resetSeen();
     }
 
