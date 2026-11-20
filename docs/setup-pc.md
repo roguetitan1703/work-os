@@ -31,9 +31,11 @@ never touches `~/.claude.json`. If the hook install fails, setup says why and st
 and every 6 hours it asks Work OS for the latest release and installs it only if it is newer and signed with the Work
 OS release key that its own code lists (the private key is on Om's PC, never on the server), then restarts on the new
 code and refreshes the hooks, so `hook.mjs` never goes stale. Nothing to paste, no prompt. The PC's row on Claude ›
-Setup › Computers shows "Worker <version>" and "updated itself <when>"; a release it would not take shows there as
-"update refused: ..." or "update failed: ..." and the old worker keeps running (tap it for the command to update by
-hand). A worker installed before self-update (before version 0.5.0) shows "update available": run the command on that
+Setup › Computers shows "Worker <version>" and "updated itself <when>". The old worker keeps running when it does not
+take a release: "Update refused: this release isn't signed by Delpat. Don't reinstall; tell Om." means the server
+offered something the release key did not sign (or an older release): do not run the install command on that PC, since
+it would fetch the same file from the same server; tell Om. "update failed: <reason>; it will try again" (no network, a
+broken download) clears by itself. A worker installed before self-update (before version 0.5.0) shows "update available": run the command on that
 PC one last time (settings and key are kept: press Enter at each question). `hooks status` and `worker.mjs status` show
 the installed hooks version and the last self-update; `hooks remove` (or `worker.mjs uninstall`) takes the hooks out.
 Details: worker/README.md.

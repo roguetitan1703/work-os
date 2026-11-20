@@ -54,6 +54,26 @@ function unpackWith(file) {
 
 const short = (e) => String(e?.code || e?.message || e).split('\n')[0].slice(0, 60);
 
+/** The body of a download, read chunk by chunk; null (and the request aborted) once it passes `limit` bytes. */
+export async function readCapped(body, limit, ac) {
+  if (!body?.getReader) throw new Error('no response body');
+  const reader = body.getReader();
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) {
+      ac?.abort();
+      try { await reader.cancel(); } catch { /* already closed */ }
+      return null;
+    }
+    chunks.push(Buffer.from(value.buffer, value.byteOffset, value.byteLength));
+  }
+  return Buffer.concat(chunks, total);
+}
+
 /**
  * One check. Returns { result: 'repo' | 'current' | 'updated' | 'refused' | 'failed', reason?, version? }.
  * workerDir: the unpacked `worker` folder (the download sits in its parent). version: the installed release's version
@@ -91,14 +111,18 @@ export async function selfUpdate({ baseUrl, workerDir = HERE, version = releaseV
   if (!verifyRelease(latest, keys)) return done('refused', 'bad signature', offered);
   if (compareVersions(offered, version) <= 0) return done('refused', `version ${offered} is not newer than ${version}`, offered); // no downgrades
 
+  // Read as a stream and stop at the limit: MAX_BYTES, or the size latest.json gives when that is smaller (a server that
+  // sends more, with or without a content-length, is cut off there, never held in memory whole).
+  const limit = Number.isSafeInteger(latest.bytes) && latest.bytes > 0 ? Math.min(latest.bytes, MAX_BYTES) : MAX_BYTES;
   let bytes;
+  const ac = new AbortController();
   try {
-    const res = await fetchImpl(base + '/worker/' + BUNDLE_FILE, { signal: AbortSignal.timeout(120_000), cache: 'no-store' });
+    const res = await fetchImpl(base + '/worker/' + BUNDLE_FILE, { signal: AbortSignal.any([ac.signal, AbortSignal.timeout(120_000)]), cache: 'no-store' });
     if (res.status !== 200) return done('failed', `the download answered ${res.status}`, offered);
-    if (Number(res.headers?.get?.('content-length')) > MAX_BYTES) return done('failed', 'the download is too large', offered);
-    bytes = Buffer.from(await res.arrayBuffer());
+    if (Number(res.headers?.get?.('content-length')) > limit) { ac.abort(); return done('failed', 'the download is too large', offered); }
+    bytes = await readCapped(res.body, limit, ac);
   } catch (e) { return done('failed', `the download broke off (${short(e)})`, offered); }
-  if (bytes.length > MAX_BYTES) return done('failed', 'the download is too large', offered);
+  if (!bytes) return done('failed', 'the download is too large', offered);
   if (crypto.createHash('sha256').update(bytes).digest('hex') !== latest.sha256) return done('failed', 'the download does not match its signed checksum', offered);
 
   const dir = path.dirname(workerDir);
