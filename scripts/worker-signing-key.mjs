@@ -23,7 +23,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { bundleFrom, readWorkerFiles } from '../worker/bundle/build.mjs';
+import { bundleFrom, readWorkerFiles, SKILL_RE } from '../worker/bundle/build.mjs';
 import { signRelease, verifyRelease, publicKeyText, compareVersions, releaseVersionAt, VERSION_RE, SHA_RE } from '../worker/release.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -41,7 +41,8 @@ export function keyPath(env = process.env, platform = process.platform) {
 /** The worker files, release key list and commit time of a git ref, from the committed blobs (no checkout, no CRLF). */
 function fromRef(ref) {
   const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-  const names = git('ls-tree', '--name-only', ref, 'worker/').split('\n').map((s) => s.trim()).filter((s) => /^worker\/[A-Za-z0-9._-]+\.mjs$/.test(s));
+  const names = git('ls-tree', '-r', '--name-only', ref, 'worker/').split('\n').map((s) => s.trim())
+    .filter((s) => /^worker\/[A-Za-z0-9._-]+\.mjs$/.test(s) || SKILL_RE.test(s.slice('worker/'.length)));
   const files = {};
   for (const n of names) files[n.slice('worker/'.length)] = git('cat-file', 'blob', `${ref}:${n}`);
   return { files, loader: git('cat-file', 'blob', `${ref}:worker/bundle/loader.mjs`), keys: keysIn(files['release-keys.mjs'] ?? ''), at: Number(git('log', '-1', '--format=%ct', ref).trim()) };

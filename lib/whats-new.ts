@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'transfer-declutter-commands',
+    date: '2026-11-20',
+    title: '/transfer and /declutter on every computer',
+    line: "The worker installs two Claude Code commands and keeps them current: /transfer hands a session over to a fresh one, /declutter tidies a project and asks before touching anyone else's lines; a skill of your own with the same name is left alone.",
+    where: 'Claude Code on a computer with the worker',
+    href: '/claude?tab=setup',
+  },
+  {
     id: 'worker-updates-itself',
     date: '2026-11-20',
     title: 'The worker on your computer updates itself',

@@ -152,6 +152,7 @@ export async function runSetup({ argv, deps }) {
       const r = installHooks();
       hooksOn = true;
       console.log(`Work OS hooks installed${r?.version ? ` (version ${r.version})` : ''}: start brief, stop check, the WORK-STATE.md copy`);
+      for (const line of r?.skillLines ?? []) console.log(line); // the /transfer and /declutter skills (skills-install.mjs)
     }
     catch (e) { console.log(`hooks not installed: ${String(e.message || e).split('\n')[0].slice(0, 300)} (retry: node worker.mjs hooks install)`); }
   }

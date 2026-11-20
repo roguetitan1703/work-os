@@ -1,15 +1,18 @@
 // Installs the Work OS hooks (hook.mjs) into Claude Code's user settings on this PC (docs/setup-pc.md).
-//   node worker.mjs hooks install [--force]   copy the files of FILES to <worker config dir>/hooks and merge the hook
+// It also installs the Work OS skills (/transfer, /declutter: worker/skills, skills-install.mjs) into ~/.claude/skills.
+//   node worker.mjs hooks install [--force] [--adopt NAME]   copy the files of FILES to <worker config dir>/hooks and merge the hook
 //                                   entries into ~/.claude/settings.json (a dated backup first; other settings and hooks
 //                                   kept). A second worker (WORK_OS_WORKER_DIR set) does not take over hooks that point at
-//                                   another folder unless --force.
-//   node worker.mjs hooks remove    take the Work OS entries out again
+//                                   another folder unless --force. Skills: only folders marked as the worker's are
+//                                   replaced; --adopt NAME replaces the person's own folder of that name (kept as a backup).
+//   node worker.mjs hooks remove    take the Work OS entries and the worker's skill folders out again
 //   node worker.mjs hooks status    say what is installed
 //   node worker.mjs hooks repo [folder] [--server URL] [--project ID]   for a cloud repo (Claude Code on the web): copy the hook files to
 //                                   <repo>/.claude/work-os/ and merge four entries into <repo>/.claude/settings.json that
 //                                   run only in a cloud session and sign in with WORK_OS_KEY. Hooks only, never permissions.
 //                                   --project ID (the id in the project's Work OS address): the project this repo's cloud sessions
-//                                   start on; without it a cloud session in the repo is unfiled and asks (H13).
+//                                   start on; without it a cloud session in the repo is unfiled and asks (H13). The skills
+//                                   go to <repo>/.claude/skills (same marker rule).
 //   node worker.mjs hooks check [folder]   would a Claude Code session in the folder (default: here) get the Work OS brief?
 // Never touches ~/.claude.json. Safe to run again (it replaces its own entries only).
 import crypto from 'node:crypto';
@@ -20,6 +23,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { checkBaseUrl, configDir, loadConfig } from './config.mjs';
 import { EVENTS } from './hook-lib.mjs';
+import { installSkills, removeSkills, skillsStatus, describeSkills } from './skills-install.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const settingsPath = () => process.env.CLAUDE_SETTINGS_PATH || path.join(os.homedir(), '.claude', 'settings.json');
@@ -121,7 +125,7 @@ function copyFiles(dir) {
   for (const f of fs.readdirSync(dir)) if (/^hook-.*\.mjs$/.test(f) && !FILES.includes(f)) fs.rmSync(path.join(dir, f), { force: true });
 }
 
-export function install({ force = false } = {}) {
+export function install({ force = false, adopt = [] } = {}) {
   const f = settingsPath();
   const current = read(f);
   if (!force && process.env.WORK_OS_WORKER_DIR && !ownsEntries(current)) {
@@ -134,16 +138,22 @@ export function install({ force = false } = {}) {
   fs.writeFileSync(path.join(dir, VERSION_FILE), version + '\n');
   const hook = path.join(dir, 'hook.mjs');
   write(f, merge(current, hook));
-  return { hook, version, settings: f, signIn: signIn(read(f)) };
+  // The skills. A failure here (a locked folder) never undoes the hooks: it is reported, and retried at the next start.
+  let skills;
+  try { skills = installSkills({ adopt }); } catch (e) { if (adopt.length) throw e; skills = { error: String(e.message || e).split('\n')[0].slice(0, 300) }; }
+  return { hook, version, settings: f, signIn: signIn(read(f)), skills, skillLines: skillLines(skills) };
 }
 
+/** Takes the Work OS entries out of the settings and removes the worker's (marked) skill folders. Returns { hooks: was any entry removed, skills: the removed skill names }. */
 export function remove() {
   const f = settingsPath();
   const s = read(f);
   try { fs.rmSync(path.join(hooksDir(), VERSION_FILE), { force: true }); } catch {}
-  if (!s.hooks || !Object.values(s.hooks).flat().some(ours)) return false;
+  let skills = [];
+  try { skills = removeSkills(); } catch { /* a locked folder stays */ }
+  if (!s.hooks || !Object.values(s.hooks).flat().some(ours)) return { hooks: false, skills };
   write(f, withoutOurs(s));
-  return true;
+  return { hooks: true, skills };
 }
 
 const ourEvents = (s) => Object.entries(s.hooks || {}).filter(([, g]) => (g || []).some(ours)).map(([ev]) => ev);
@@ -163,10 +173,20 @@ export function refreshIfStale() {
   try { return isStale() && !runsElsewhere() ? install().version : null; } catch { return null; }
 }
 
+/** At worker start: bring the skills up to date when this worker's hooks are installed (a worker that runs another
+ * worker's hooks, or none, leaves them alone). Never throws. Returns the names installed or refreshed. */
+export function refreshSkills() {
+  try {
+    const s = read(settingsPath());
+    if (!ourEvents(s).length || !ownsEntries(s)) return [];
+    return installSkills().installed;
+  } catch { return []; }
+}
+
 export function status() {
   const s = read(settingsPath());
   const events = ourEvents(s);
-  return { settings: settingsPath(), events, hookFile: fs.existsSync(path.join(hooksDir(), 'hook.mjs')), version: installedVersion(), current: hooksVersion(), stale: isStale(), signIn: signIn(s) };
+  return { settings: settingsPath(), events, hookFile: fs.existsSync(path.join(hooksDir(), 'hook.mjs')), version: installedVersion(), current: hooksVersion(), stale: isStale(), signIn: signIn(s), skills: skillsStatus() };
 }
 
 const SIGN_IN = {
@@ -175,6 +195,18 @@ const SIGN_IN = {
   workerKey: "WORK_OS_KEY is set: the worker is used first (this PC's worker key, which also reports the session's state) and the key is only the fallback when the worker gives no brief.",
   none: 'The WORK-STATE.md copy and its edit guard work now; the start brief and the stop check turn on once the worker is set up here (node worker.mjs setup).',
 };
+
+/** What an install says about the skills: what it put in, and each folder it left because it is the person's own. */
+export function skillLines(r) {
+  if (!r) return [];
+  if (r.error) return [`Work OS skills not installed: ${r.error} (retried at the worker's next start)`];
+  const out = [];
+  const put = [...r.installed, ...r.current].sort();
+  if (put.length) out.push(`Work OS skills: ${put.map((n) => '/' + n).join(', ')}${r.installed.length ? ` (installed now: ${r.installed.join(', ')})` : ' (current)'}`);
+  for (const b of r.backups) out.push(`your own copy was moved to ${b}`);
+  out.push(...describeSkills(r.own.map((name) => ({ name, state: 'own' }))));
+  return out;
+}
 
 const REPO_MARK = '.claude/work-os/hook.mjs';
 const repoOurs = (group) => (group?.hooks || []).some((x) => String(x.command || '').includes(REPO_MARK));
@@ -197,13 +229,16 @@ export function repo(folder = process.cwd(), { server, project } = {}) {
   fs.mkdirSync(dir, { recursive: true });
   refuseLinks(top, ['.claude', 'work-os']);
   copyFiles(dir);
+  // The skills too (a cloud session has no worker to install them): <repo>/.claude/skills/<name>, same marker rule.
+  refuseLinks(top, ['.claude', 'skills']);
+  const skills = installSkills({ target: path.join(top, '.claude', 'skills') });
   const file = path.join(top, '.claude', 'settings.json');
   const s = read(file);
   const hooks = {};
   for (const [ev, groups] of Object.entries(s.hooks || {})) { const keep = (groups || []).filter((g) => !repoOurs(g)); if (keep.length) hooks[ev] = keep; }
   for (const [ev, groups] of Object.entries(entries(`$CLAUDE_PROJECT_DIR/${REPO_MARK}`, ` --cloud --server "${origin}"${project ? ` --project "${project}"` : ''}`, { cloud: true }))) hooks[ev] = [...(hooks[ev] || []), ...groups];
   fs.writeFileSync(file, JSON.stringify({ ...s, hooks }, null, 2) + '\n');
-  return { dir, settings: file, server: origin, project: project || null };
+  return { dir, settings: file, server: origin, project: project || null, skills };
 }
 /** A symlink or junction at .claude or .claude/work-os would let a hostile repo aim our writes and the stale-file cleanup elsewhere. */
 function refuseLinks(top, parts) {
@@ -233,23 +268,34 @@ export async function check(folder = process.cwd()) {
 
 export async function cli(sub, rest = []) {
   if (sub === 'install') {
-    const r = install({ force: rest.includes('--force') });
+    const a = rest.indexOf('--adopt');
+    if (a >= 0 && (!rest[a + 1] || rest[a + 1].startsWith('--'))) throw new Error('--adopt needs the skill name, e.g. hooks install --adopt transfer');
+    const r = install({ force: rest.includes('--force'), adopt: a >= 0 ? [rest[a + 1]] : [] });
     console.log(`Work OS hooks installed in ${r.settings} (hook: ${r.hook}, version ${r.version}).`);
+    for (const line of r.skillLines) console.log(line);
     console.log(SIGN_IN[r.signIn === 'worker' && (process.env.WORK_OS_KEY || read(settingsPath()).env?.WORK_OS_KEY) ? 'workerKey' : r.signIn ?? 'none']);
     console.log('Open Claude Code sessions pick this up on their next tool call; restart them to get the start brief.');
-  } else if (sub === 'remove') console.log(remove() ? 'Work OS hooks removed.' : 'No Work OS hooks were installed.');
-  else if (sub === 'status') console.log(JSON.stringify(status(), null, 2));
+  } else if (sub === 'remove') {
+    const r = remove();
+    console.log(r.hooks ? 'Work OS hooks removed.' : 'No Work OS hooks were installed.');
+    if (r.skills.length) console.log(`Work OS skills removed: ${r.skills.join(', ')} (your own skills were left).`);
+  } else if (sub === 'status') {
+    const s = status();
+    console.log(JSON.stringify(s, null, 2));
+    for (const line of describeSkills(s.skills)) console.log(line);
+  }
   else if (sub === 'repo') {
     const i = rest.indexOf('--server');
     const k = rest.indexOf('--project');
     const folder = rest.find((x, j) => !x.startsWith('--') && j !== i + 1 && j !== k + 1);
     const r = repo(folder, { server: i >= 0 ? rest[i + 1] : undefined, project: k >= 0 ? rest[k + 1] : undefined });
-    console.log(`Work OS hooks for cloud sessions written to ${r.dir} and ${r.settings} (server ${r.server}${r.project ? `, project ${r.project}` : ''}). Commit both.`);
+    console.log(`Work OS hooks for cloud sessions written to ${r.dir} and ${r.settings} (server ${r.server}${r.project ? `, project ${r.project}` : ''}). Commit both, and .claude/skills.`);
+    for (const line of skillLines(r.skills)) console.log(line);
     if (!r.project) console.log('No --project: a cloud session in this repo is unfiled and asks its person which project it is for. Pass --project <id> (the last part of the address of the project in Work OS) to start it on one.');
     console.log('In the cloud environment: set WORK_OS_KEY to a Claude Code key made for it (Work OS › Settings › Keys), and allow the Work OS address in its network settings.');
   } else if (sub === 'check') {
     const r = await check(rest.find((x) => !x.startsWith('--')));
     console.log(describeCheck(r));
     if (!r.ok) process.exitCode = 1;
-  } else { console.error('usage: node worker.mjs hooks [install [--force]|remove|status|check [folder]|repo [folder] [--server URL] [--project ID]]'); process.exitCode = 2; }
+  } else { console.error('usage: node worker.mjs hooks [install [--force] [--adopt NAME]|remove|status|check [folder]|repo [folder] [--server URL] [--project ID]]'); process.exitCode = 2; }
 }

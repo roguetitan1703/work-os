@@ -8,7 +8,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { bundleFrom } from '../bundle/build.mjs';
+import { bundleFrom, readWorkerFiles } from '../bundle/build.mjs';
 import { bundleId, releaseVersion } from '../config.mjs';
 import { selfUpdate, startSelfUpdate, updateReport, readUpdateStatus } from '../update.mjs';
 import { signRelease, verifyRelease, publicKeyText, compareVersions, releaseMessage, releaseVersionAt } from '../release.mjs';
@@ -23,11 +23,7 @@ const good = crypto.generateKeyPairSync('ed25519');
 const other = crypto.generateKeyPairSync('ed25519');
 const KEYS = [publicKeyText(good.publicKey)];
 
-const sourceFiles = () => {
-  const files = {};
-  for (const f of fs.readdirSync(WORKER).filter((n) => n.endsWith('.mjs'))) files[f] = fs.readFileSync(path.join(WORKER, f), 'utf8');
-  return files;
-};
+const sourceFiles = () => readWorkerFiles(WORKER).files; // the .mjs files and the skills, as the server bundles them
 const LOADER = fs.readFileSync(path.join(WORKER, 'bundle', 'loader.mjs'), 'utf8');
 /** A release of this worker at `version` (as the signing step sets it); `change` edits its files (name → text). */
 const release = (version, change = {}) => bundleFrom({ ...sourceFiles(), ...change }, LOADER, version);
@@ -261,6 +257,27 @@ test('after an update the new worker refreshes the installed hooks', async () =>
   } finally { rm(inst.d); }
 });
 
+test('after an update with a newer skill the worker start refreshes it; an own skill folder stays', async () => {
+  const inst = installed();
+  const env = { ...process.env, WORK_OS_WORKER_DIR: path.join(inst.d, 'cfg'), CLAUDE_SETTINGS_PATH: path.join(inst.d, 'claude', 'settings.json') };
+  delete env.WORK_OS_KEY; delete env.CLAUDE_SKILLS_DIR;
+  const node = (args) => spawnSync(process.execPath, args, { encoding: 'utf8', env });
+  const skills = path.join(inst.d, 'claude', 'skills');
+  try {
+    assert.equal(node([path.join(inst.workerDir, 'worker.mjs'), 'hooks', 'install']).status, 0);
+    fs.rmSync(path.join(skills, 'transfer', '.work-os-managed')); // now the person's own: no marker
+    const text = sourceFiles()['skills/declutter/SKILL.md'] + '\nChanged in this release.\n';
+    const next = release(V1, { 'skills/declutter/SKILL.md': text });
+    assert.equal((await check(inst, server({ latest: signed(next), body: next.body }))).result, 'updated');
+    const probe = `const m = await import(${JSON.stringify(new URL('file:///' + path.join(inst.workerDir, 'hooks-install.mjs').split(path.sep).join('/')).href)}); console.log(JSON.stringify(m.refreshSkills()));`;
+    const r = node(['--input-type=module', '-e', probe]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(JSON.parse(r.stdout.trim().split('\n').pop()), ['declutter']);
+    assert.equal(fs.readFileSync(path.join(skills, 'declutter', 'SKILL.md'), 'utf8'), text);
+    assert.equal(fs.existsSync(path.join(skills, 'transfer', '.work-os-managed')), false, 'the own folder is not taken over');
+  } finally { rm(inst.d); }
+});
+
 test('the signing script sets the version from the time, signs only with a listed key, never goes back; the key is never printed', () => {
   const d = tmp();
   try {
@@ -270,7 +287,7 @@ test('the signing script sets the version from the time, signs only with a liste
     fs.writeFileSync(keyFile, pem);
     const src = path.join(d, 'worker');
     fs.mkdirSync(path.join(src, 'bundle'), { recursive: true });
-    for (const [f, text] of Object.entries(sourceFiles())) fs.writeFileSync(path.join(src, f), text);
+    for (const [f, text] of Object.entries(sourceFiles())) { fs.mkdirSync(path.dirname(path.join(src, f)), { recursive: true }); fs.writeFileSync(path.join(src, f), text); }
     fs.writeFileSync(path.join(src, 'bundle', 'loader.mjs'), LOADER);
     const run = (...a) => spawnSync(process.execPath, [SCRIPT, ...a], { encoding: 'utf8', env: { ...process.env, WORKER_SIGNING_KEY: keyFile } });
     const out = path.join(d, 'sig.json');
@@ -285,8 +302,7 @@ test('the signing script sets the version from the time, signs only with a liste
     assert.equal(r.status, 0, r.stderr);
     const rec = JSON.parse(fs.readFileSync(out, 'utf8'));
     assert.equal(rec.version, '20261120.143005');
-    const files = {}; for (const f of fs.readdirSync(src).filter((n) => n.endsWith('.mjs'))) files[f] = fs.readFileSync(path.join(src, f), 'utf8');
-    assert.equal(rec.sha256, bundleFrom(files, LOADER, rec.version).sha256);
+    assert.equal(rec.sha256, bundleFrom(readWorkerFiles(src).files, LOADER, rec.version).sha256);
     assert.equal(verifyRelease(rec, KEYS), true);
     assert.equal(run('check', '--dir', src, '--sig', out).status, 0);
     assert.ok(!(r.stdout + r.stderr).includes(pem.split('\n').slice(1, -2).join('')), 'the private key is not printed');

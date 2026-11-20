@@ -57,7 +57,17 @@ The worker keeps one stream open to Work OS (`GET /api/worker/stream`, `push.mjs
 
 ## Commands
 
-`run` (default), `setup`, `set-token`, `install`, `uninstall` (also removes the hooks), `status` (shows the hooks version), `hooks install [--force]|remove|status|check [folder]|repo [folder] [--server URL]` (`check` says whether a session in a folder gets the Work OS brief; `repo` puts the hooks into a repo for Claude Code on the web: docs/setup-pc.md "Cloud repos"), `scan [--dry]`, `activity [--titles]`.
+`run` (default), `setup`, `set-token`, `install`, `uninstall` (also removes the hooks and the Work OS skills), `status` (shows the hooks version and the skills), `hooks install [--force] [--adopt NAME]|remove|status|check [folder]|repo [folder] [--server URL] [--project ID]` (`check` says whether a session in a folder gets the Work OS brief; `repo` puts the hooks and the skills into a repo for Claude Code on the web: docs/setup-pc.md "Cloud repos"), `scan [--dry]`, `activity [--titles]`.
+
+## Skills (/transfer, /declutter)
+
+The worker carries two Claude Code skills, `skills/transfer/SKILL.md` (hand a session's work over through Work OS, or pick a handover up) and `skills/declutter/SKILL.md` (tidy a project's State from the `declutter` tool's proposals). They come in the download and the signed bundle like the code. `hooks install` (and so `setup`) copies each to `~/.claude/skills/<name>/` with a `.work-os-managed` file holding its version (a hash of the text); at every start a worker whose hooks are installed refreshes them when it carries a newer version (after a self-update). `skills-install.mjs` does it.
+
+- Only folders with `.work-os-managed` are ever replaced or removed. A folder of the same name without it is the person's own: it stays, and `hooks status` says `transfer: your own skill, not replaced`. Links are never followed.
+- `hooks install --adopt transfer` replaces that one own folder after the person asks; the old folder moves to `<config folder>/skills-backup/transfer-<time>` (never left where Claude Code reads skills).
+- `hooks remove` and `uninstall` remove only the marked folders. To keep your own edited copy of a Work OS skill, delete its `.work-os-managed` file.
+- `hooks repo` writes the same folders into `<repo>/.claude/skills/` (same marker rule) for cloud sessions; commit them.
+- The skill text is agent-facing: it uses the Words (docs/HANDOVER.md section 3) and `npm run check:words` scans it.
 
 The scan offers git repos, folders with a project file (package.json, pyproject.toml, …) and every parent folder above them (below the root), so a client folder that holds several repos can be linked too.
 

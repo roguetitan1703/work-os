@@ -63,11 +63,11 @@ test('install copies the hook, merges ten events (eleven entries), keeps other s
 });
 
 test('remove takes out only the Work OS entries', () => {
-  assert.equal(m.remove(), true);
+  assert.equal(m.remove().hooks, true);
   const s = settings();
   assert.deepEqual(Object.keys(s.hooks), ['Stop']);
   assert.equal(s.hooks.Stop[0].hooks[0].command, 'node other.mjs');
-  assert.equal(m.remove(), false);
+  assert.equal(m.remove().hooks, false);
 });
 
 const hooksOf = (dir) => path.join(dir, 'hooks');
@@ -209,7 +209,7 @@ test('a worker folder not named work-os-worker: two installs leave no duplicates
     assert.equal(s.hooks.SessionStart.length, 2, 'the brief and the idle wait');
     assert.equal(m.status().events.length, 10);
     assert.equal(m.refreshIfStale(), null);
-    assert.equal(m.remove(), true);
+    assert.equal(m.remove().hooks, true);
     assert.equal(m.status().events.length, 0);
   } finally { process.env.CLAUDE_SETTINGS_PATH = keepS; process.env.WORK_OS_WORKER_DIR = keepD; fs.rmSync(t2, { recursive: true, force: true }); }
 });

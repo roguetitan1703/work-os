@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { bundleFrom } from '../../worker/bundle/build.mjs';
+import { bundleFrom, readWorkerFiles } from '../../worker/bundle/build.mjs';
 import { signRelease, verifyRelease, publicKeyText, releaseVersionAt } from '../../worker/release.mjs';
 
 // The worker download: public (no cookie, no key), the same bytes every time, the sha256 the app shows, no secrets.
@@ -41,9 +41,7 @@ import { signRelease, verifyRelease, publicKeyText, releaseVersionAt } from '../
     const write = (rec) => fs.writeFileSync(sigFile, JSON.stringify(rec));
     // What the signing step does: the release version from a time, the bundle of these files at that version, signed.
     const W = fileURLToPath(new URL('../../worker/', import.meta.url));
-    const loader = fs.readFileSync(path.join(W, 'bundle', 'loader.mjs'), 'utf8');
-    const files = {};
-    for (const f of fs.readdirSync(W).filter((n) => n.endsWith('.mjs'))) files[f] = fs.readFileSync(path.join(W, f), 'utf8');
+    const { files, loader } = readWorkerFiles(W); // the .mjs files and the skills, as the server reads them
     const V = releaseVersionAt(Date.UTC(2026, 10, 20, 12, 0, 0) / 1000);
     const rel = bundleFrom(files, loader, V);
     write({ version: V, sha256: 'a'.repeat(64), signature: signRelease({ version: V, sha256: 'a'.repeat(64) }, key.privateKey) });

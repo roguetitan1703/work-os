@@ -28,12 +28,16 @@ try { current = fs.readFileSync(marker, 'utf8').trim(); } catch {}
 if (current !== id) {
   fs.mkdirSync(dir, { recursive: true });
   for (const [name, text] of Object.entries(FILES)) {
-    if (!/^[A-Za-z0-9._-]+\.mjs$/.test(name)) continue;
-    const tmp = path.join(dir, `.${name}.new`);
+    const skill = /^skills\/([a-z0-9][a-z0-9-]{0,39})\/SKILL\.md$/.exec(name); // the Work OS skills (hooks-install.mjs installs them)
+    if (!skill && !/^[A-Za-z0-9._-]+\.mjs$/.test(name)) continue;
+    const to = skill ? path.join(dir, 'skills', skill[1], 'SKILL.md') : path.join(dir, name);
+    fs.mkdirSync(path.dirname(to), { recursive: true });
+    const tmp = `${to}.new`;
     fs.writeFileSync(tmp, text);
-    fs.renameSync(tmp, path.join(dir, name));
+    fs.renameSync(tmp, to);
   }
   for (const f of fs.readdirSync(dir)) if (f.endsWith('.mjs') && !(f in FILES)) fs.rmSync(path.join(dir, f), { force: true }); // gone in this version
+  try { for (const s of fs.readdirSync(path.join(dir, 'skills'))) if (!(`skills/${s}/SKILL.md` in FILES)) fs.rmSync(path.join(dir, 'skills', s), { recursive: true, force: true }); } catch {}
   fs.writeFileSync(path.join(dir, 'RELEASE'), RELEASE + '\n');
   fs.writeFileSync(marker, id + '\n');
   console.log(`worker unpacked: ${dir}`);

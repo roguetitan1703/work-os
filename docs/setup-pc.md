@@ -37,6 +37,14 @@ hand). A worker installed before self-update (before version 0.5.0) shows "updat
 PC one last time (settings and key are kept: press Enter at each question). `hooks status` and `worker.mjs status` show
 the installed hooks version and the last self-update; `hooks remove` (or `worker.mjs uninstall`) takes the hooks out.
 Details: worker/README.md.
+
+**Two slash commands come with it: /transfer and /declutter.** The hook install also copies the Work OS skills to
+`~/.claude/skills/transfer` and `~/.claude/skills/declutter` (each with a `.work-os-managed` file), and the worker
+refreshes them after an update. /transfer hands a session's work to a fresh session (`/transfer pick up <note id>` in
+the new one); /declutter tidies the project's State and asks before touching lines other sessions or people hold. A
+skill folder you made yourself with the same name is never replaced: `hooks status` says "transfer: your own skill, not
+replaced". To swap yours for the Work OS one: `node "<worker folder>/worker.mjs" hooks install --adopt transfer` (yours
+is kept under the worker's config folder, `skills-backup`). `hooks remove` takes out only the Work OS skill folders.
 Then link the PC's folders: Claude › Setup › Computers › this PC › Folders says "N folders here match your projects'
 repos" with **Link them**; press it (the device key opens a project only through a linked folder, and the worker never
 links by itself). Within two minutes the PC's row shows "hooks on".
@@ -118,7 +126,8 @@ A cloud session has no worker, so the repo carries the hooks. From a PC with the
 node worker.mjs hooks repo [folder] [--server https://work.delpat.in] [--project <project id>]
 ```
 It copies the hook files to `.claude/work-os/` and merges four entries into `.claude/settings.json` (hooks only, never
-permissions; other settings and hooks stay; rerun to update). Commit both. The entries carry `--cloud`, so they do
+permissions; other settings and hooks stay; rerun to update), and writes the /transfer and /declutter skills to
+`.claude/skills/` (a folder of the same name without `.work-os-managed` is left alone). Commit all three. The entries carry `--cloud`, so they do
 nothing on a PC (the global hooks run there) and run only when `CLAUDE_CODE_REMOTE=true`. In the cloud environment:
 set `WORK_OS_KEY` in its variables to a Claude Code key made for that environment (Claude › Setup › Claude Code key),
 and allow `work.delpat.in` in its network settings.
