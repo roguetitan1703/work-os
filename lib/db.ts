@@ -203,6 +203,8 @@ export type NeedDoc = Placed & {
   replacedBy?: string;
   /** start_work handed the answer to the asker's session (so a later brief does not repeat it). */
   briefedAt?: Date;
+  /** The asking session was off when the answer came: the answer went to this session of the same person (the Now holder, or the one whose start_work listed it). */
+  handedTo?: string;
   /** A review Need: what the agent handed in (hand_in), or just its summary. */
   result?: import('./types').HandInResult;
   /** Accept and file what is left: the numbers of the tasks made from the left lines. */

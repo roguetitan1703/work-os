@@ -423,10 +423,18 @@ export async function answeredNeedsSince(s: Scope, asker: { session?: string; ke
   // A Need goes to the session that asked. A caller with no session id gets only those asked by the same key / OAuth client
   // (on the project asked about); never another session's, never another key's.
   // The key must be the asking key in every case: a session id alone is a name any caller may pass.
+  // A Need handed to this session (its asker was off when it was answered) is this session's too, whatever key asked it.
+  const handed = asker.session ? { handedTo: asker.session } : null;
   if (asker.keyId) q['from.keyId'] = asker.keyId;
-  else q._id = '';
+  else if (!handed) q._id = '';
   if (asker.session) q.$or = [{ 'from.session': asker.session }, { 'from.session': { $exists: false } }];
-  const docs = await (await scoped(s)).needs.find(q).sort({ answeredAt: 1 }).limit(50).toArray();
+  let filter: Document = q;
+  if (handed) {
+    const { $or, 'from.keyId': k, _id, ...common } = q;
+    const own: Document = { ...(k ? { 'from.keyId': k } : { _id: '' }), $or };
+    filter = { ...common, $or: [own, handed] };
+  }
+  const docs = await (await scoped(s)).needs.find(filter).sort({ answeredAt: 1 }).limit(50).toArray();
   return docs.map(toNeed);
 }
 
@@ -515,8 +523,71 @@ export async function answerNeed(s: Scope, id: string, answer: { option: string;
     if (fresh) Object.assign(answered, { order: fresh.order });
   }
   // The session that asked is usually waiting on exactly this: tell it, if it sits idle waiting for a message (lib/data/deliver.ts).
-  if (answered.from.session && 'userId' in answered.from.actor) signalSessions(s.orgId, [`${answered.from.actor.userId}:${answered.from.session}`]);
+  if (answered.from.session && 'userId' in answered.from.actor) {
+    const to = await handToHolder(s.orgId, answered).catch(() => null);
+    signalSessions(s.orgId, [`${answered.from.actor.userId}:${to ?? answered.from.session}`]);
+  }
   return answered;
+}
+
+/** The asking session is off (no presence row on the project, or it reads off). */
+async function askerIsOff(c: Collections, projectId: string, userId: string, session: string, now: number): Promise<boolean> {
+  const rows = await c.presence.find({ projectId, userId, session }).limit(5).toArray();
+  return rows.every(r => presenceState(r, { now }).state === 'off');
+}
+
+/**
+ * A Need answered while the session that asked it is off: if the project's Now holder is a session of the same person that is on
+ * (never a dispatched run), the answer goes to that session once (deliver.ts reads `handedTo`). Returns that session id, else null.
+ * Same person only; a Need whose pick_up already moved it names the new asker, which is on, so it never comes here.
+ */
+async function handToHolder(orgId: string, n: Need): Promise<string | null> {
+  const fromSession = n.from.session;
+  if (!fromSession || !('userId' in n.from.actor) || !n.from.actor.userId) return null;
+  const userId: string = n.from.actor.userId;
+  const c = await orgWide(orgId);
+  const now = Date.now();
+  if (!(await askerIsOff(c, n.projectId, userId, fromSession, now))) return null;
+  const st = await c.states.findOne({ _id: n.projectId }, { projection: { now: 1 } });
+  const key = st?.now?.hold?.key;
+  if (!key || !key.startsWith(`${userId}:`)) return null;
+  const holder = await c.presence.findOne({ projectId: n.projectId, userId, key: key.slice(userId.length + 1) });
+  if (!holder || holder.dispatched || !holder.session || holder.session === n.from.session || presenceState(holder, { now }).state === 'off') return null;
+  const r = await c.needs.updateOne({ _id: n.id, status: 'answered', handedTo: { $exists: false }, briefedAt: { $exists: false } }, { $set: { handedTo: holder.session } });
+  return r.modifiedCount ? holder.session : null;
+}
+
+const LATE_ANSWER_DAYS = 14;
+
+/**
+ * start_work: answered Needs of this person on this project whose asking session is off and that were not handed to anyone (not
+ * by pick_up, not by the holder rule): at most 5, marked handed to this session, one line each as data. Never a dispatched run.
+ */
+export async function takeOffAskerNeeds(s: Scope, projectId: string, me: { session?: string; dispatched?: unknown }): Promise<{ lines: string[]; more: number }> {
+  if (!me.session || me.dispatched) return { lines: [], more: 0 };
+  const c = await scoped(s);
+  const now = Date.now();
+  const docs = await c.needs
+    .find({ projectId, 'from.actor.userId': s.userId, status: 'answered', handedTo: { $exists: false }, briefedAt: { $exists: false }, 'from.session': { $exists: true, $ne: me.session }, answeredAt: { $gt: new Date(now - LATE_ANSWER_DAYS * 86_400_000) } } as never)
+    .sort({ answeredAt: 1 })
+    .limit(30)
+    .toArray();
+  const off: NeedDoc[] = [];
+  for (const d of docs) if (await askerIsOff(c, projectId, s.userId, d.from.session!, now)) off.push(d);
+  const take = off.slice(0, 5);
+  if (!take.length) return { lines: [], more: 0 };
+  const { timezoneOf } = await import('../profile');
+  const tz = await timezoneOf(s);
+  const flat = (v: string, max: number) => v.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+  const lines: string[] = [];
+  for (const n of take) {
+    const r = await c.needs.updateOne({ _id: n._id, status: 'answered', handedTo: { $exists: false } }, { $set: { handedTo: me.session, briefedAt: new Date() } });
+    if (!r.modifiedCount) continue;
+    const a = n.answer;
+    const opt = flat(n.options.find(o => o.id === a?.option)?.label ?? (a?.option === 'other' ? 'own answer' : (a?.option ?? '')), 80);
+    lines.push(`Need #${n.ref}: "${flat(n.ask, 120)}" answered "${opt}"${a?.text ? `, "${flat(a.text, 160)}"` : ''}, ${clockDay(a?.at ?? n.answeredAt ?? new Date(), tz)}`);
+  }
+  return { lines, more: Math.max(0, off.length - take.length) };
 }
 
 // ── Review (slice 5) ────────────────────────────────────────────────────────
@@ -708,7 +779,10 @@ export async function withdrawNeed(s: Scope, id: string, by: Withdrawer = 'app')
         (cur.from.word !== 'person' && cur.kind !== 'review' && cur.from.word === by.word && (!cur.from.session || cur.from.session === by.session) && (!cur.from.keyId || cur.from.keyId === by.keyId)));
     if (!cur || !mine) throw new NotFoundError('That Need does not exist, or you did not ask it.');
     if (cur.status === 'answered') throw new InputError(await answeredText(s, cur));
-    if (cur.status !== 'open') throw new InputError(`This Need is already ${cur.status}.`);
+    if (cur.status !== 'open') {
+      const { timezoneOf } = await import('../profile');
+      throw new InputError(`Need #${cur.ref} is already ${cur.status}${cur.closedAt ? `, ${clockDay(cur.closedAt, await timezoneOf(s))}` : ''}. Nothing to withdraw.`);
+    }
     const now = new Date();
     const done = await c.needs.findOneAndUpdate({ _id: id, 'from.actor.userId': s.userId, status: 'open' }, { $set: { status: 'withdrawn', closedAt: now } }, { returnDocument: 'after' });
     if (!done) throw new InputError('This Need is already closed.');
