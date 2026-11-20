@@ -137,6 +137,10 @@ export function holdKeyOf(userId: string, src: string | undefined | null): strin
 /** Does the session `key` (`userId:key`) hold this State's Now? */
 export const holdsNowOf = (d: Pick<StateDoc, 'now'> | null | undefined, key: string | undefined): boolean => !!key && d?.now?.hold?.key === key;
 
+/** Now is one sentence: a longer one is saved, with a note to the writer. */
+const NOW_ADVISED = 120;
+const nowLongNote = (n: number) => `Now is ${n} characters. Keep it one sentence, about ${NOW_ADVISED} at most; put the detail in Next or a note.`;
+
 /** set_now or an edit of Now from a session Work OS has no presence row for (on this project). */
 export const NO_SESSION = 'Now is held by sessions Work OS knows: pass the session id start_work gave you (session) and call again. Nothing was written.';
 
@@ -351,6 +355,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
           await claimNow();
           if (op.holder !== undefined && !person && !notes.length) notes.push("set_now's holder is ignored: Work OS records the session that sets Now as its holder.");
           nowSet = { text: op.text, ...(nowHold ? { hold: nowHold } : {}), by, at: now };
+          if (op.text.length > NOW_ADVISED) notes.push(nowLongNote(op.text.length));
           feed.push({ type: 'state_now', text: op.text });
           break;
         case 'add_next': {
@@ -474,6 +479,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
             if (!person && st0.version !== o.baseVersion) return { conflict: true as const, state: st0, project, holdsNow: holdsNowOf(st0, me) };
             await claimNow();
             nowSet = { text: replaced, ...(nowHold ? { hold: nowHold } : {}), by, at: now };
+            if (replaced.length > NOW_ADVISED) notes.push(nowLongNote(replaced.length));
             feed.push({ type: 'state_now', text: replaced });
             break;
           }

@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'needs-one-line',
+    date: '2026-11-20',
+    title: 'Needs fold to one line',
+    line: 'Each Need is one line with its recommended answer as a button; tap the line to read it all and answer another way.',
+    where: 'Today, Tasks and Needs',
+    href: '/needs',
+  },
+  {
     id: 'parked-list',
     date: '2026-11-20',
     title: 'Park ideas without cluttering the plan',
