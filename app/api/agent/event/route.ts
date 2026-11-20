@@ -16,7 +16,7 @@ import { stateOfProject } from '@/lib/data/states';
 //                                no device key, no Work OS API key, no OAuth token, no session cookie, no X-API-Key.
 //                                The token's owner must still be a member of its organization on every call.
 //   event  What happened in the Claude Code session. The server decides the state from it (prompt and tool: working;
-//          stop: idle (waiting, why question, when it carries ask: the question the turn ended with); end: off; notify permission_prompt or elicitation_dialog: waiting at a prompt; idle_prompt: idle;
+//          stop: idle (waiting, why question, when it carries ask: the question the turn ended with); end: off; notify permission_prompt or elicitation_dialog: waiting at a prompt; idle_prompt: idle (never over a question: that waits for the next prompt);
 //          other kinds change nothing). The hook never sends a state, a message text, a path or a session id (result, above, is the one text).
 //   at     The hook's clock in ms; clamped to the server's now plus or minus 5 minutes. An event not newer than the
 //          stored one changes nothing, so hooks that arrive out of order never step a session back.

@@ -295,6 +295,8 @@ export async function isFreeEvent(s: Scope, r: { sid: string; projectId: string 
   if (ev.files || ev.copy || ev.identity || ev.result !== undefined || ev.nudge || ev.ask) return { free: false, state: row.activity?.state ?? null };
   const a = row.activity;
   if (!next) return { free: true, state: a?.state ?? null, ignored: true };
+  // The idle wait on a row waiting with a question changes nothing (recordState keeps the question): free.
+  if (idleWait(ev) && a?.why === 'question') return { free: true, state: a.state, ignored: true };
   // A tool-start is a repeat only of an already open working row; any other event is a repeat only when nothing is open (it must clear `open`).
   // A tool event (a batch ended) on a row a tool-start opened in the last minute is a repeat too and keeps `open` (hooks review H4:
   // every batch after a Bash call was charged, and a busy hour ran past the event budget); stop, prompt, notify and end clear it.
@@ -337,10 +339,18 @@ export async function recordEvent(
 export const LAST_RESULT_MAX = 300;
 /** The question a turn ended with (a stop's `ask`), as stored. */
 export const ASK_MAX = 200;
-/** A lane result as stored: control characters and line breaks to spaces, one line, at most 300 characters (an ellipsis counts). */
-export function cleanResult(v: string | undefined | null): string {
-  const t = (v ?? '').replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ').replace(/\s+/g, ' ').trim();
-  return t.length > LAST_RESULT_MAX ? t.slice(0, LAST_RESULT_MAX - 1) + '\u2026' : t;
+/**
+ * Agent text as stored (a lane result, a stop's ask): control characters and line breaks to spaces, bidi and zero-width characters
+ * dropped, one line, at most `max` characters (an ellipsis counts), never cut inside a surrogate pair.
+ */
+export function cleanResult(v: string | undefined | null, max = LAST_RESULT_MAX): string {
+  const t = (v ?? '')
+    .replace(/[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]+/g, '')
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (t.length <= max) return t;
+  let cut = max - 1;
+  if (/[\ud800-\udbff]/.test(t[cut - 1] ?? '')) cut--; // a high surrogate would lose its pair
+  return t.slice(0, cut) + '\u2026';
 }
 /** A compaction summary or an analysis block is never a session's last line (older hooks sent a subagent's report, which can start so). */
 export const notAResult = (text: string): boolean =>
@@ -366,13 +376,15 @@ export async function countCopyEdit(s: Scope, r: { sid: string; projectId: strin
 /** The events that are activity (Last active): a prompt, a tool use, a turn end. Not a notification or the end. */
 const ACTIVE_EVENTS = new Set<EventName>(['prompt', 'tool', 'tool-start', 'stop']);
 
+const idleWait = (ev: { event: EventName; kind?: EventKind }) => ev.event === 'notify' && ev.kind === 'idle_prompt';
+
 async function recordState(
   s: Scope,
   r: { sid: string; projectId: string | null },
   ev: { event: EventName; kind?: EventKind; at?: number; ask?: string },
 ): Promise<{ state: PresenceState | null; changed: boolean; ignored?: boolean }> {
   // A turn that ended asking its person something (the hook's stop `ask`) waits on them until the next prompt replaces it.
-  const ask = ev.event === 'stop' && ev.ask ? cleanResult(ev.ask).slice(0, ASK_MAX) : '';
+  const ask = ev.event === 'stop' && ev.ask ? cleanResult(ev.ask, ASK_MAX) : '';
   const next: { state: PresenceState; why?: 'prompt' | 'question' } | null = ask ? { state: 'waiting', why: 'question' } : eventState(ev);
   const c = await scoped(s);
   const _id = hookRowId(s.userId, r.sid, r.projectId);
@@ -383,7 +395,8 @@ async function recordState(
   const now = Date.now();
   const at = new Date(Math.min(now + SKEW_MS, Math.max(now - SKEW_MS, Number.isFinite(ev.at) ? ev.at! : now)));
   const before = await c.presence.findOneAndUpdate(
-    { _id, userId: s.userId, $or: [{ activity: { $exists: false } }, { 'activity.at': { $lt: at } }] },
+    // The idle wait (notify idle_prompt) never replaces a question the turn ended with: only the next prompt or tool does.
+    { _id, userId: s.userId, $or: [{ activity: { $exists: false } }, { 'activity.at': { $lt: at } }], ...(idleWait(ev) ? { 'activity.why': { $ne: 'question' as const } } : {}) },
     { $set: { activity: { state: next.state, at, ...(next.why ? { why: next.why } : {}), ...(ask ? { ask } : {}), ...(ev.event === 'tool-start' ? { open: true as const } : {}) }, lastSeen: new Date(now), ...(ev.event === 'prompt' ? { promptAt: at } : {}), ...(ACTIVE_EVENTS.has(ev.event) ? { activeAt: at } : {}) } },
     { returnDocument: 'before', projection: { activity: 1 } },
   );

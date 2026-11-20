@@ -172,8 +172,9 @@ function fromWorker(w: WorkerRow, c: SessionRow | undefined): SessionItem {
   if (state === 'idle' && subagents > 0) state = 'working';
   else if (state === 'idle' && w.quiet) state = 'quiet';
   const via = [TOOL_NAME[w.tool] ?? '', w.ai, w.model].filter(Boolean).join(' · ');
-  // Last active is the last prompt, tool use or turn end; a row from before that was kept falls back to the computer's word, then the last call.
-  const last = w.lastActive || c?.lastActiveAt || w.lastSeen;
+  // Last active is the last prompt, tool use or turn end: the newer of the session's own word and the computer's, then the last call.
+  const ms = (t: string | null | undefined) => (t ? Date.parse(t) || 0 : 0);
+  const last = (ms(c?.lastActiveAt) > ms(w.lastActive) ? c?.lastActiveAt : w.lastActive) || w.lastSeen;
   return {
     id: w.id,
     worker: w.id,

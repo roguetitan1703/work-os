@@ -95,10 +95,15 @@ export const QUIET_MIN = 120;
 
 export type ActiveRow = { lastSeen: Date; activity?: { state: PresenceState; at: Date } | null; activeAt?: Date; promptAt?: Date; createdAt?: Date };
 
-/** When the session last did something. Rows from before activeAt: the last prompt, or a working event; with neither, when the row was made. */
+/**
+ * When the session last did something: the newest of activeAt, the last prompt and a working event. Rows from before activeAt
+ * also count an idle event (their last turn end); with none of these, when the row was made.
+ */
 export function lastActive(row: ActiveRow): Date {
   if (!row.activity) return row.lastSeen;
-  const t = Math.max(row.activeAt?.getTime() ?? 0, row.promptAt?.getTime() ?? 0, row.activity.state === 'working' ? row.activity.at.getTime() : 0);
+  const a = row.activity;
+  const counts = a.state === 'working' || (!row.activeAt && a.state === 'idle');
+  const t = Math.max(row.activeAt?.getTime() ?? 0, row.promptAt?.getTime() ?? 0, counts ? a.at.getTime() : 0);
   return t > 0 ? new Date(t) : (row.createdAt ?? row.lastSeen);
 }
 

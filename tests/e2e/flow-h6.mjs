@@ -114,6 +114,17 @@ try {
   await seq('stop with ask', { event: 'stop', ask: 'Release 0.26.1 with the two framework fixes?' }, 'waiting', g => /Waiting on you/.test(g.text) && /Release 0\.26\.1 with the two framework fixes\?/.test(g.text) && !/Idle/.test(g.text));
   const q = (await prow(S.sid)).activity;
   check('a stop with ask stores why question and the cleaned question', q.why === 'question' && q.ask === 'Release 0.26.1 with the two framework fixes?', JSON.stringify(q));
+  // The idle wait a minute later (notify idle_prompt) keeps the question (review fix 1).
+  await seq('notify idle_prompt after a question keeps Waiting on you', { event: 'notify', kind: 'idle_prompt' }, 'waiting', g => /Waiting on you/.test(g.text) && /Release 0\.26\.1/.test(g.text));
+  check('the idle wait left why question and the ask', (await prow(S.sid)).activity.why === 'question' && (await prow(S.sid)).activity.ask === q.ask);
+  // Cleaning (review fix 3): bidi and zero-width characters dropped; cut at 200 with an ellipsis, never inside a surrogate pair.
+  await ev(S.token, { event: 'prompt' });
+  await ev(S.token, { event: 'stop', ask: 'Ship​ ‮it⁦ now?' });
+  check('the ask drops bidi and zero-width characters', (await prow(S.sid)).activity.ask === 'Ship it now?', (await prow(S.sid)).activity.ask);
+  await ev(S.token, { event: 'prompt' });
+  await ev(S.token, { event: 'stop', ask: 'a'.repeat(198) + '\u{1F600}' + 'b'.repeat(50) });
+  const cut = (await prow(S.sid)).activity.ask;
+  check('a long ask is cut at 200 with an ellipsis, not inside a surrogate pair', cut === 'a'.repeat(198) + '…', JSON.stringify(cut?.slice(-4)));
   const badAsk = await ev(S.token, { event: 'tool', ask: 'x' });
   check('ask goes with a stop only', badAsk.status === 400, badAsk.text);
   await seq('the next prompt clears the question', { event: 'prompt' }, 'working', g => !/Waiting/.test(g.text) && !/Release 0\.26/.test(g.text));

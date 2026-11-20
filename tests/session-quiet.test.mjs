@@ -80,3 +80,19 @@ test('a turn that ended with a question waits on its person: "Waiting on you" fo
   assert.equal(akar.ask, 'Release 0.26.1?');
   assert.equal(v.live.find(i => i.id === 'tm').word, 'Waiting on a person');
 });
+
+test('review fix 2: a row from before activeAt counts its last turn end; activeAt rows do not count the idle wait', () => {
+  const old = { lastSeen: ago(0), activity: { state: 'idle', at: ago(10) }, promptAt: ago(300) };
+  assert.equal(lastActive(old).getTime(), ago(10).getTime());
+  assert.equal(isQuiet('idle', old, now), false);
+  const kept = { ...old, activeAt: ago(200) };
+  assert.equal(lastActive(kept).getTime(), ago(200).getTime(), 'with activeAt an idle event (the idle wait) is not activity');
+});
+
+test('review fix 2: last active is the newer of the session\'s word and the computer\'s', () => {
+  const row = (lastActiveAt) => ({ key: 'd1:cc1', title: 'x', deviceId: 'd1', folder: 'f', projectId: 'p1', projectName: 'Alpha', deviceName: 'Om-PC', state: 'open', live: true, subagents: 0, lastActiveAt, workOs: true, canVscode: false, canStop: false, canResume: false, canRemove: false });
+  const a = mergeSessions([worker('w', { cc: 'cc1', lastActive: iso(90) })], [row(iso(5))], { tz, now });
+  assert.equal(a.live[0].lastActiveAt, iso(5));
+  const b = mergeSessions([worker('w', { cc: 'cc1', lastActive: iso(5) })], [row(iso(90))], { tz, now });
+  assert.equal(b.live[0].lastActiveAt, iso(5));
+});
