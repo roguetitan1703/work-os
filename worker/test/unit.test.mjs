@@ -214,6 +214,13 @@ test('supervisor: restarts only after the code is stable and parses', async () =
   assert.equal(w.tick(), true, 'stable and parses');
   w.started('d'); t += STABLE_MS;
   assert.equal(w.tick(), false, 'running the new code');
+  // The worker folder mid-swap (bundle/loader.mjs): gone for a moment, never a restart while it is gone.
+  sig = null; t += 1; assert.equal(w.tick(), false);
+  t += STABLE_MS * 4; assert.equal(w.tick(), false, 'still gone: wait');
+  sig = 'e'; t += 1; assert.equal(w.tick(), false, 'back, new code: the clock starts');
+  t += STABLE_MS; assert.equal(w.tick(), true);
+  const { signature } = await import('../supervisor.mjs');
+  assert.equal(signature(path.join(os.tmpdir(), 'wos-no-such-folder-' + process.pid)), null);
   const d = tmp();
   try {
     fs.writeFileSync(path.join(d, 'a.mjs'), 'export const x = 1;\n');

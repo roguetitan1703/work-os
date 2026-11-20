@@ -1,11 +1,15 @@
 import fs from 'node:fs';
 import os from 'node:os';
+import path from 'node:path';
 import readline from 'node:readline/promises';
+import { fileURLToPath } from 'node:url';
 import { resolveClaude } from './launch.mjs';
 import { projectsDirOf } from './clone.mjs';
 import { loadConfig, configPath, configDir, checkBaseUrl } from './config.mjs';
 
 export const DEFAULT_SERVER = 'https://work.delpat.in';
+/** This worker's own worker.mjs (beside setup.mjs: the unpacked `worker` folder of a download, or the repo's). */
+export const WORKER_MJS = path.join(path.dirname(fileURLToPath(import.meta.url)), 'worker.mjs');
 export const NODE_URL = 'https://nodejs.org/en/download';
 export const CLAUDE_URL = 'https://docs.claude.com/en/docs/claude-code/overview';
 
@@ -148,9 +152,11 @@ export async function runSetup({ argv, deps }) {
       const r = installHooks();
       hooksOn = true;
       console.log(`Work OS hooks installed${r?.version ? ` (version ${r.version})` : ''}: start brief, stop check, the WORK-STATE.md copy`);
+      for (const line of r?.skillLines ?? []) console.log(line); // the /transfer and /declutter skills (skills-install.mjs)
     }
     catch (e) { console.log(`hooks not installed: ${String(e.message || e).split('\n')[0].slice(0, 300)} (retry: node worker.mjs hooks install)`); }
   }
   console.log(`Done: in Work OS, Claude › Setup › Computers › ${deviceName} › Folders, press Link matching folders.`);
-  if (hooksOn) console.log('Then check with: node worker.mjs hooks check <a project folder>');
+  // The full path of the installed worker.mjs: setup often runs from the home folder (the download), where a bare worker.mjs is not.
+  if (hooksOn) console.log(`Then check with: node "${WORKER_MJS}" hooks check <a project folder>`);
 }

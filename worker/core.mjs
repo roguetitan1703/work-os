@@ -13,9 +13,13 @@ import { askRuns, isRun, releaseRun } from './dispatch-run.mjs';
 
 const DISPATCHED_NO_VSCODE = 'This session was started for a task and runs on its own key: use Resume, not VS Code';
 
-import { bundleId } from './config.mjs';
+import { bundleId, releaseVersion } from './config.mjs';
 
-export const VERSION = '0.4.0';
+// The code version, for repo runs and unsigned bundles. A signed release gets its own version from the signing step
+// (YYYYMMDD.HHMMSS, worker/release.mjs), which the loader leaves in worker/RELEASE; nobody raises a number by hand.
+export const VERSION = '0.5.0';
+/** The version this worker runs as: its release's, else the code version. */
+export const runningVersion = () => releaseVersion() ?? VERSION;
 const MISS_MS = 20000; // claude must be missing this long before the session counts as closed
 const OPEN_WINDOW_MS = 60_000;
 const OPEN_MAX_PER_MIN = 4;
@@ -283,9 +287,11 @@ export function createCore(deps) {
     try { await refreshSessions(); } catch (e) { log('liveness failed: ' + errMsg(e)); }
     const sessions = Object.entries(state.sessions).map(([sessionId, s]) => ({ sessionId, folderId: s.folderId, state: s.state }));
     // allowPrompts: tells the server whether a first message reaches Claude here. The task dispatcher only sends tasks to a worker that says true.
-    const body = { worker: { version: VERSION, os: process.platform, ...(bundleId() ? { bundle: bundleId().slice(0, 12) } : {}), allowPrompts: getConfig().allowPrompts !== false, ...cloneInfo() }, jobs: pendingResults, sessions };
+    const body = { worker: { version: runningVersion(), os: process.platform, ...(bundleId() ? { bundle: bundleId().slice(0, 12) } : {}), allowPrompts: getConfig().allowPrompts !== false, ...cloneInfo() }, jobs: pendingResults, sessions };
     // Whether this PC's Claude Code hooks are installed and current (Computers shows it). A failure leaves it out.
     if (deps.hooksStatus) { try { const h = deps.hooksStatus(); if (h) body.worker.hooks = h; } catch (e) { log('hooks status failed: ' + errMsg(e)); } }
+    // Self-update (update.mjs): that it is on, the last one installed and the last refusal or failure. Repo runs send none.
+    if (deps.selfUpdate) { try { const u = deps.selfUpdate(); if (u) body.worker.selfUpdate = u; } catch (e) { log('update status failed: ' + errMsg(e)); } }
     // Counts only (docs/launcher.md "Activity counts"); a failed count never blocks the heartbeat.
     if (deps.activity) {
       try {

@@ -21,19 +21,37 @@ Then in Claude Code type `/mcp`, pick work-os, Authenticate, and press Allow on 
 In Work OS open Claude › Setup › Computers, type a name for this PC, press Add, and run the command it shows (it
 downloads the worker, checks its checksum and runs `setup`; paste the device key when asked, it is never part of the
 command). At its end `setup` also installs the Work OS hooks (global, every folder): it copies the hook files (`hook.mjs` and the files it runs) to the
-worker's config folder (`%APPDATA%work-os-workerhooks` on Windows, `~/.work-os/worker/hooks` on macOS) and adds four entries to
-`~/.claude/settings.json`, keeping a dated backup and every other setting. It never touches `~/.claude.json`. If the
-hook install fails, setup says why and still finishes; retry with `node worker.mjs hooks install` from the worker
-folder (`%LOCALAPPDATA%WorkOSworker` on Windows, `~/.work-os/worker` on macOS; from the repo: `worker/`).
-After a worker update (run the same command again) setup refreshes the hooks too, and a worker that starts with
-newer code than the installed hooks refreshes them itself, so `hook.mjs` never goes stale. `hooks status` and
-`worker.mjs status` show the installed hooks version; `hooks remove` (or `worker.mjs uninstall`) takes them out.
+worker's config folder (`%APPDATA%\work-os-worker\hooks` on Windows, `~/Library/Application Support/work-os-worker/hooks`
+on macOS) and adds the hook entries to `~/.claude/settings.json`, keeping a dated backup and every other setting. It
+never touches `~/.claude.json`. If the hook install fails, setup says why and still finishes; retry with
+`node "<worker folder>/worker.mjs" hooks install`; the worker folder is `%LOCALAPPDATA%\WorkOS\worker` on Windows and
+`~/.work-os/worker` on macOS (from the repo: `worker/`), and setup's last line prints the full path.
+
+**Updates come by themselves.** You run the command once per PC. From then on the worker updates itself: at start
+and every 6 hours it asks Work OS for the latest release and installs it only if it is newer and signed with the Work
+OS release key that its own code lists (the private key is on Om's PC, never on the server), then restarts on the new
+code and refreshes the hooks, so `hook.mjs` never goes stale. Nothing to paste, no prompt. The PC's row on Claude ›
+Setup › Computers shows "Worker <version>" and "updated itself <when>". The old worker keeps running when it does not
+take a release: "Update refused: this release isn't signed by Delpat. Don't reinstall; tell Om." means the server
+offered something the release key did not sign (or an older release): do not run the install command on that PC, since
+it would fetch the same file from the same server; tell Om. "update failed: <reason>; it will try again" (no network, a
+broken download) clears by itself. A worker installed before self-update (before version 0.5.0) shows "update available": run the command on that
+PC one last time (settings and key are kept: press Enter at each question). `hooks status` and `worker.mjs status` show
+the installed hooks version and the last self-update; `hooks remove` (or `worker.mjs uninstall`) takes the hooks out.
 Details: worker/README.md.
+
+**Two slash commands come with it: /transfer and /declutter.** The hook install also copies the Work OS skills to
+`~/.claude/skills/transfer` and `~/.claude/skills/declutter` (each with a `.work-os-managed` file), and the worker
+refreshes them after an update. /transfer hands a session's work to a fresh session (`/transfer pick up <note id>` in
+the new one); /declutter tidies the project's State and asks before touching lines other sessions or people hold. A
+skill folder you made yourself with the same name is never replaced: `hooks status` says "transfer: your own skill, not
+replaced". To swap yours for the Work OS one: `node "<worker folder>/worker.mjs" hooks install --adopt transfer` (yours
+is kept under the worker's config folder, `skills-backup`). `hooks remove` takes out only the Work OS skill folders.
 Then link the PC's folders: Claude › Setup › Computers › this PC › Folders says "N folders here match your projects'
 repos" with **Link them**; press it (the device key opens a project only through a linked folder, and the worker never
 links by itself). Within two minutes the PC's row shows "hooks on".
-- Check: Claude › Setup › Computers shows this PC as online and "hooks on"; `node worker.mjs hooks status` lists four
-  events; `node worker.mjs hooks check <a project folder>` prints "Brief for project <name>, signed in with this PC's
+- Check: Claude › Setup › Computers shows this PC as online, "hooks on" and its worker version; `node "<worker
+  folder>/worker.mjs" hooks status` lists the events; `node "<worker folder>/worker.mjs" hooks check <a project folder>` prints "Brief for project <name>, signed in with this PC's
   worker key" (or says why not). A PC with the worker signs in with the worker key first, which is what lets its sessions report their state; a `WORK_OS_KEY` in `settings.json` is only the fallback when the worker gives no brief (folder not linked, key refused, no network), and `hooks check` then says `key`.
 
 ## 4. (merged into step 3)
@@ -110,7 +128,8 @@ A cloud session has no worker, so the repo carries the hooks. From a PC with the
 node worker.mjs hooks repo [folder] [--server https://work.delpat.in] [--project <project id>]
 ```
 It copies the hook files to `.claude/work-os/` and merges four entries into `.claude/settings.json` (hooks only, never
-permissions; other settings and hooks stay; rerun to update). Commit both. The entries carry `--cloud`, so they do
+permissions; other settings and hooks stay; rerun to update), and writes the /transfer and /declutter skills to
+`.claude/skills/` (a folder of the same name without `.work-os-managed` is left alone). Commit all three. The entries carry `--cloud`, so they do
 nothing on a PC (the global hooks run there) and run only when `CLAUDE_CODE_REMOTE=true`. In the cloud environment:
 set `WORK_OS_KEY` in its variables to a Claude Code key made for that environment (Claude › Setup › Claude Code key),
 and allow `work.delpat.in` in its network settings.

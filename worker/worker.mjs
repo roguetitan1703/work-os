@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { loadConfig, loadState, saveState, configPath, checkBaseUrl, bundleId } from './config.mjs';
 import { getToken, setToken, readSecretFromStdin } from './secret.mjs';
 import { makeApi } from './api.mjs';
-import { createCore, VERSION } from './core.mjs';
+import { createCore, runningVersion } from './core.mjs';
 import { createLoop } from './loop.mjs';
 import { launch, listProcesses, killPid, resolveClaude } from './launch.mjs';
 import { scanRoots, publicFolder } from './scan.mjs';
@@ -14,8 +14,9 @@ import { collectActivity, sessionLocal } from './activity.mjs';
 import { openInVscode, resolveCode } from './vscode.mjs';
 import { openInDesktop } from './desktop.mjs';
 import { connectPush } from './push.mjs';
-import { startUpdateCheck } from './update.mjs';
+import { startSelfUpdate, updateReport, readUpdateStatus } from './update.mjs';
 import * as hooksInstall from './hooks-install.mjs';
+import { describeSkills } from './skills-install.mjs';
 import { runFor, sweepRunConfigs } from './dispatch-run.mjs';
 
 const log = (m) => console.log(`${new Date().toISOString()} ${m}`);
@@ -41,15 +42,18 @@ async function run() {
   const openDesktop = ({ folder, prompt }) => openInDesktop({ folder, prompt });
   const onlyRoots = () => { const c = loadConfig(); return c.sessionsInRootsOnly ? c.roots : null; };
   const hooksStatus = () => { const h = hooksInstall.status(); return { version: h.version, events: h.events.length, stale: h.stale, signIn: h.signIn }; };
-  const core = createCore({ hooksStatus, sweepRuns: (keep) => sweepRunConfigs(keep), getConfig: loadConfig, state, save: () => saveState(state), api, launcher, listProcesses, killPid, log, sessionLocal: (sid) => sessionLocal(sid), openVscode, openDesktop, activity: (ids) => collectActivity({ listProcesses, workOsIds: ids, withSessions: true, onlyRoots: onlyRoots(), procDir: path.join(hooksInstall.hooksDir(), 'sessions') }) });
+  const core = createCore({ hooksStatus, selfUpdate: () => updateReport(), sweepRuns: (keep) => sweepRunConfigs(keep), getConfig: loadConfig, state, save: () => saveState(state), api, launcher, listProcesses, killPid, log, sessionLocal: (sid) => sessionLocal(sid), openVscode, openDesktop, activity: (ids) => collectActivity({ listProcesses, workOsIds: ids, withSessions: true, onlyRoots: onlyRoots(), procDir: path.join(hooksInstall.hooksDir(), 'sessions') }) });
   let loop = null;
   const push = connectPush({ getCfg: loadConfig, getToken, onWake: () => loop?.wake(), onUp: (up) => { log(up ? 'push connected' : 'push disconnected'); loop?.wake(); }, log });
   loop = createLoop({ core, getConfig: loadConfig, state, log, pushUp: () => push.up });
-  log(`work-os-worker ${VERSION} started`);
+  log(`work-os-worker ${runningVersion()} started`);
   // After an update the unpacked code is new: bring the installed hooks up to date too (a no-op when none are installed).
   const refreshed = hooksInstall.refreshIfStale();
   if (refreshed) log(`hooks refreshed to ${refreshed}`);
-  startUpdateCheck({ getBaseUrl: () => loadConfig().baseUrl, log });
+  // The Work OS skills (/transfer, /declutter) too, when newer ones came with the update; folders the person owns stay.
+  const skills = hooksInstall.refreshSkills();
+  if (skills.length) log(`skills refreshed: ${skills.join(', ')}`);
+  startSelfUpdate({ getBaseUrl: () => loadConfig().baseUrl, log });
   await loop.run();
 }
 
@@ -58,8 +62,12 @@ function status() {
   const state = loadState();
   console.log('config file:', configPath());
   console.log(JSON.stringify(cfg, null, 2));
-  console.log('worker code:', bundleId() ? `downloaded bundle ${bundleId().slice(0, 12)}` : 'run from the repo');
-  { const h = hooksInstall.status(); console.log('hooks:', h.events.length ? `installed, version ${h.version || 'unknown'}${h.stale ? ` (stale, this worker carries ${h.current}; run: hooks install)` : ' (current)'}` : 'not installed'); }
+  console.log('worker code:', `version ${runningVersion()},`, bundleId() ? `downloaded bundle ${bundleId().slice(0, 12)}` : 'run from the repo');
+  if (bundleId()) {
+    const u = readUpdateStatus();
+    console.log('self-update:', `on${u.updatedAt ? `, last updated ${u.updatedAt} from ${u.from}` : ''}${u.problem ? `; last check: ${u.problem}` : ''}`);
+  }
+  { const h = hooksInstall.status(); console.log('hooks:', h.events.length ? `installed, version ${h.version || 'unknown'}${h.stale ? ` (stale, this worker carries ${h.current}; run: hooks install)` : ' (current)'}` : 'not installed'); for (const line of describeSkills(h.skills)) console.log('skill', line); }
   console.log('device key set:', getToken() ? 'yes' : 'no');
   console.log('last scan:', state.lastScan ? new Date(state.lastScan).toISOString() : 'never');
   console.log('last poll:', state.lastPoll ? new Date(state.lastPoll).toISOString() : 'never');
@@ -90,7 +98,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     else if (cmd === 'install') { install(); console.log('autostart installed'); }
     else if (cmd === 'uninstall') {
       uninstall(); console.log('autostart removed');
-      try { console.log(hooksInstall.remove() ? 'Work OS hooks removed' : 'no Work OS hooks installed'); } catch (e) { console.log(`hooks not removed: ${String(e.message || e).split('\n')[0].slice(0, 300)}`); }
+      try { const r = hooksInstall.remove(); console.log(r.hooks ? 'Work OS hooks removed' : 'no Work OS hooks installed'); if (r.skills.length) console.log(`Work OS skills removed: ${r.skills.join(', ')}`); } catch (e) { console.log(`hooks not removed: ${String(e.message || e).split('\n')[0].slice(0, 300)}`); }
     }
     else if (cmd === 'status') status();
     else if (cmd === 'hooks') await (await import('./hooks-install.mjs')).cli(process.argv[3], process.argv.slice(4));
@@ -111,7 +119,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         console.log(JSON.stringify(found.map(publicFolder), null, 2));
         console.log(`${found.length} folders (dry run, nothing sent)`);
       } else console.log(`sent ${await scanAndSend()} folders`);
-    } else { console.error('usage: node worker.mjs [run|setup [--no-autostart]|set-token|install|uninstall|status|scan [--dry]|activity|hooks install [--force]|hooks remove|hooks status|hooks check [folder]]'); process.exit(2); }
+    } else { console.error('usage: node worker.mjs [run|setup [--no-autostart]|set-token|install|uninstall|status|scan [--dry]|activity|hooks install [--force] [--adopt NAME]|hooks remove|hooks status|hooks check [folder]]'); process.exit(2); }
   } catch (e) { console.error(String(e.message || e)); process.exit(1); }
   if (cmd !== 'run') process.exit(0);
 }

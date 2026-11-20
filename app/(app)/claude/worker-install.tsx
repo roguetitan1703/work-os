@@ -8,7 +8,7 @@ import { installCommands, type InstallInfo } from '@/lib/worker-install';
 const iconBtn = 'w-11 h-11 rounded-full flex items-center justify-center text-muted-foreground active:bg-muted/60 hover:bg-muted/40 shrink-0';
 const tabBtn = (on: boolean) => `h-9 px-3 rounded-full text-[13px] font-medium ${on ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-muted/40'}`;
 
-/** The copy-paste install command per OS (lib/worker-install.ts). Used for a new computer and for an update. */
+/** The copy-paste install command per OS (lib/worker-install.ts). Used for a new computer, and once for a worker from before self-update. */
 export function InstallCommands({ info }: { info: InstallInfo }) {
   const [os, setOs] = useState<'windows' | 'mac'>('windows');
   const [copied, setCopied] = useState(false);
@@ -48,7 +48,7 @@ export function InstallCommands({ info }: { info: InstallInfo }) {
       </div>
       <p className="text-[12px] text-muted-foreground">
         Needs Node 22 or newer and Claude Code on that computer; setup checks both and says what is missing. The command downloads the worker to a folder of your own, checks it against this checksum (
-        <code className="font-mono break-all">{info.sha256.slice(0, 16)}…</code>, version {info.version}), and asks for the key. The checksum only catches a damaged download; it comes from this same site. Linux is not supported yet.
+        <code className="font-mono break-all">{info.sha256.slice(0, 16)}…</code>, version {info.version}), and asks for the key. The checksum only catches a damaged download; it comes from this same site. After that the worker updates itself, and only to a newer release signed with the Work OS release key. Linux is not supported yet.
       </p>
     </div>
   );

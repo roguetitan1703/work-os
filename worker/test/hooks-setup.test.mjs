@@ -72,7 +72,10 @@ test('--no-autostart leaves autostart alone; the ending names the hooks version 
   assert.match(r.out, /autostart skipped/);
   assert.match(r.out, /Work OS hooks installed \(version abc123def456\)/);
   assert.match(r.out, /Done: in Work OS, Claude › Setup › Computers › n › Folders, press Link matching folders\./);
-  assert.match(r.out, /node worker\.mjs hooks check/);
+  // The full path of the installed worker.mjs, so the line works from any folder (setup often runs from the home folder).
+  const { WORKER_MJS } = await import('../setup.mjs');
+  assert.ok(path.isAbsolute(WORKER_MJS) && fs.existsSync(WORKER_MJS));
+  assert.ok(r.out.includes(`Then check with: node "${WORKER_MJS}" hooks check <a project folder>`), r.out);
   const r2 = await setup({ install: () => { installs++; }, installHooks: () => ({ version: 'abc123def456' }) });
   assert.equal(installs, 1, 'without the flag autostart is installed');
 });

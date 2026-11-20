@@ -6,8 +6,15 @@
 #   sudo work-os-deploy <commit> --artifact work-os-<commit12>.tar.gz
 # A build made here is x86_64: that is fine, .next holds no native code (deploy.sh checks), and the server installs
 # its own native packages with npm ci.
+# The worker release signature (docs/launcher.md "Self-update") is made before, in a separate step on Windows with
+# Windows node, which reads the key from DPAPI; this build never sees the key (npm ci and next build run code from the
+# release's dependencies as root here). The build only picks the signature file up from <out dir>, checks that it fits
+# this commit's worker, and puts it into the tarball as .next/worker-signature.json. Without it the build warns and
+# carries no signature: workers then do not update to it.
 #
-#   sudo bash scripts/build-artifact.sh [<ref>] [<out dir>]     ref: default origin/master; out: default the current dir
+#   1. On Windows, in a checkout:   node scripts/worker-signing-key.mjs sign --ref <commit> --out-dir <out dir>
+#   2. In WSL:                      sudo bash scripts/build-artifact.sh [<ref>] [<out dir>]
+#      ref: default origin/master; out: default the current dir (the same folder as step 1, e.g. /mnt/d/...)
 set -euo pipefail
 REF="${1:-origin/master}"
 OUT="$(cd "${2:-.}" && pwd)"
@@ -53,6 +60,19 @@ node -v > BUILD_NODE
 # What the server's check will want: no native code inside .next.
 if [ -n "$(find .next -type f \( -name '*.node' -o -name '*.so' \) -print -quit)" ]; then
   echo ".next holds native code: this build only runs on $(uname -m); build on arm64 instead" >&2; exit 1
+fi
+# The worker signature made in step 1 (never the key): it must fit this commit's worker as the server will have it.
+SIG="$OUT/worker-signature-$SHORT.json"
+rm -f "$REL/.next/worker-signature.json"
+if [ -f "$SIG" ]; then
+  if node scripts/worker-signing-key.mjs check --dir "$REL/worker" --sig "$SIG"; then
+    cp "$SIG" "$REL/.next/worker-signature.json"
+  else
+    echo "!!! WARNING: $SIG does not fit this commit's worker (see above). This build carries no signature." >&2
+  fi
+else
+  echo "!!! WARNING: no worker signature at $SIG. This build carries no signature, so no worker updates itself to it." >&2
+  echo "!!! Sign first, on Windows: node scripts/worker-signing-key.mjs sign --ref $SHORT --out-dir <this out dir>" >&2
 fi
 NAME="work-os-$SHORT.tar.gz"
 tar -czf "$OUT/$NAME" --exclude=.next/cache .next REVISION BUILD_ARCH BUILD_NODE

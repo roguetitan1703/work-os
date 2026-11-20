@@ -15,6 +15,7 @@ const SCANNED_DIRS = [
   ['lib/mcp', /\.ts$/],
   ['lib/mail', /\.ts$/],
   ['worker', /\.mjs$/],
+  ['worker/skills', /\.md$/], // the /transfer and /declutter skills the worker installs
   ['app/(app)/claude', /\.(ts|tsx)$/],
 ];
 const SCANNED_FILES = ['lib/data/states.ts', 'lib/data/dispatcher.ts', 'lib/data/notes.ts', 'lib/data/messages.ts', 'lib/data/deliver.ts', 'app/(app)/projects/[id]/state-card.tsx'];
