@@ -338,7 +338,7 @@ export type DeclutterCache = { checkedAt: Date; reasons: string[]; quietUntil?: 
 /** A decision recorded on a project (append-only). `by` = who decided (a user id), `via` = chat / code / app / discord. */
 export type StateDecision = { id: string; at: Date; by: string; src?: string; via: string; text: string; archivedAt?: Date; /** The key that recorded it (the hourly limit counts per key). */ key?: string; /** The message it was applied from, who wrote that message and how it came in; `by` is who applied it. */ msg?: string; author?: string; word?: string };
 /** One Parked line as its own row (collection `stateParked`), placed like its project. `at` is the line's own date; `parkedAt` is when it was parked (the sort key). */
-export type StateParkedDoc = Placed & { _id: string; projectId: string; id: string; text: string; when?: string; ref?: number; waitsOn?: string; by: string; src?: string; at: Date; parkedAt: Date };
+export type StateParkedDoc = Placed & { _id: string; projectId: string; id: string; text: string; when?: string; ref?: number; waitsOn?: string; by: string; src?: string; at: Date; parkedAt: Date; /** The key that parked it, and the caller (user id) who did: the hourly limit counts by them. */ key?: string; parkedBy?: string };
 /** One decision as its own row (collection `stateDecisions`), placed like its project. An archived decision keeps its row with `archivedAt`. */
 export type StateDecisionDoc = Placed & StateDecision & { _id: string; projectId: string; archivedBy?: string };
 /** Where the work is on one machine, as the agent reported it from git. */

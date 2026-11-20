@@ -3,7 +3,7 @@
 // and by scripts/migrate-state-lists.mjs), the transaction, the hourly limit and the WORK-STATE.md copy. Seed profile: none.
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { DBNAME, ME, MCP, check, finish, mkKey, rawDb } from './lib.mjs';
+import { DBNAME, ME, MCP, check, finish, launch, login, mkKey, rawDb } from './lib.mjs';
 import { mcpH, must } from './flow-lib.mjs';
 
 const projectOf = async name => (await must(MCP, 'add_project', { name })).project;
@@ -174,8 +174,20 @@ try {
   const DUP = await projectOf('SL Dup');
   await legacyState(DUP.id, [{ id: 'l_same', text: 'a', by: ME.userId, at: new Date(T0) }, { id: 'l_same', text: 'b', by: ME.userId, at: new Date(T0 + 1) }], []);
   const dupGet = await mcpH(MCP, 'get_state', { project: 'SL Dup' });
+  const dupSave = await mcpH(MCP, 'save_state', { project: 'SL Dup', ops: [{ op: 'add_next', text: 'x' }] });
   const dupDoc = await doc(DUP.id);
-  check('duplicate ids: the move throws, the arrays stay and no rows are written', dupGet.isError && Array.isArray(dupDoc.parked) && dupDoc.parked.length === 2 && (await rawDb.collection('stateParked').countDocuments({ projectId: DUP.id })) === 0, dupGet.text.slice(0, 200));
+  const br = await launch();
+  let dupPage = '';
+  try {
+    const pg = await br.newPage();
+    await login(pg, { phone: false, next: `/projects/${DUP.id}` });
+    await pg.waitForSelector('[data-card="state"]', { timeout: 30000 });
+    dupPage = await pg.locator('[data-part="parked"] summary').innerText();
+  } finally {
+    await br.close();
+  }
+  check('duplicate ids: the project stays readable (get_state and the page) from its arrays; nothing is moved', !dupGet.isError && dupGet.json.state.parkedTotal === 2 && /Parked · 2/.test(dupPage) && Array.isArray(dupDoc.parked) && dupDoc.parked.length === 2 && (await rawDb.collection('stateParked').countDocuments({ projectId: DUP.id })) === 0, dupGet.text.slice(0, 200) + dupPage);
+  check('duplicate ids: a save answers an error naming the repeated ids and writes nothing', dupSave.isError && /repeated Parked ids/.test(dupSave.text) && (await doc(DUP.id)).next.length === 0, dupSave.text.slice(0, 250));
   await rawDb.collection('states').deleteOne({ projectId: DUP.id }); // so the migration checks below see only their own projects
 
   // 13: the copy lists the last 30 decisions as before

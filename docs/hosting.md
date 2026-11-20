@@ -575,8 +575,9 @@ use it; `proxy.ts` does not count it). `GET /api/admin/health` is the full repor
 
 The code moves each project lazily on first touch, so the deploy is safe on its own; the script makes the move complete and checked. All in one sitting, on the box, with the app's environment (the lead runs it; the Orders hook asks Om first):
 
+0. **Before deploying**: run the script's dry run from a checkout of the new commit, with the app's environment (`MONGODB_URI`, `--db <db>`), and fix every `PROBLEM:` it prints (a repeated or missing id in a Parked or decisions list). Such a project still reads from its arrays after the deploy, but a save of it is refused until it is fixed.
 1. **Backup**, right before deploying: `mongodump --db <db> --collection states --out ~/backups/state-lists-<date>`, and the same for `stateParked` and `stateDecisions` (the last two are empty or missing before the move; dump them anyway). Delete the dump after 14 days.
-2. **Deploy**: push master and `sudo work-os-update` in the same sitting.
+2. **Deploy**: push master, wait until its build exists (the Actions build or the `manual-builds` release), then `sudo work-os-update`, all in the same sitting.
 3. **Move**: `node --experimental-strip-types --no-warnings scripts/migrate-state-lists.mjs --db <db>` (dry run: counts per project, and any `PROBLEM:` for a repeated or missing id, which must be fixed first), then the same with `--apply`, then a dry run that must say `0 project(s) to move`. Spot-check two projects with `get_state` and `list_decisions`. The script prints counts, never text.
 4. **Rollback**: redeploy the old build first (the old code reads the arrays), then run `--rollback` at once. It walks every State and gives each `parked` and `decisions` arrays (empty if need be), unsets the counts and deletes the rows, one transaction per project. Restore from the dump only if its output shows a failure.
 

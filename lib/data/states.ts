@@ -3,7 +3,7 @@ import { requestContext } from '../request-context';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { inTransaction, inTransactionNow, type ArchivedLine, type DeclutterCache, type PresenceDoc, type ProjectDoc, type StateDecisionDoc, type StateDoc, type StateLine, type StateParkedDoc } from '../db';
-import { moveLegacyLists } from '../state-lists-move';
+import { idProblems, moveLegacyLists } from '../state-lists-move';
 import { scoped, type Scope } from '../scope';
 import { isPerson, userActor, type Actor } from '../actors';
 import { busy, dispatchedText, lineHeldText, lineHolder, nowHeldText, stateWord } from './lanes';
@@ -117,12 +117,18 @@ const rowId = () => randomBytes(12).toString('hex');
  */
 async function movedState(s: Scope, st: StateDoc | null): Promise<StateDoc | null> {
   if (!st || (!st.parked && !st.decisions)) return st;
-  return inTransaction(async () => {
-    const c = await scoped(s);
-    const cur = await c.states.findOne({ _id: st._id });
-    if (cur && (cur.parked || cur.decisions)) await moveLegacyLists({ states: c.states, parked: c.stateParked, decisions: c.stateDecisions } as never, cur as never, { door: true });
-    return c.states.findOne({ _id: st._id });
-  });
+  try {
+    return await inTransaction(async () => {
+      const c = await scoped(s);
+      const cur = await c.states.findOne({ _id: st._id });
+      if (cur && (cur.parked || cur.decisions)) await moveLegacyLists({ states: c.states, parked: c.stateParked, decisions: c.stateDecisions } as never, cur as never, { door: true });
+      return c.states.findOne({ _id: st._id });
+    });
+  } catch (e) {
+    // A list that cannot be moved (a repeated or missing id) stays as it is: the State is read from its arrays, and a save says what to fix.
+    console.error('[state lists move]', e instanceof Error ? e.message : 'error');
+    return st;
+  }
 }
 
 /** The State of a project the caller reads, or null (none yet, or not visible). For pages. */
@@ -218,6 +224,8 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     let cur = await c.states.findOne({ _id: project._id });
     // Parked and decisions live in their own collections: a State from before is moved on this first touch (counts missing = recount).
     if (cur && (cur.parked || cur.decisions || cur.parkedCount === undefined || cur.decisionsCount === undefined)) {
+      const bad = idProblems(cur);
+      if (bad) throw new InputError(`This project's Parked or decisions list has ${bad}, so it cannot be moved yet and nothing was written. Fix the ids (scripts/migrate-state-lists.mjs names the project), then save again.`);
       await moveLegacyLists({ states: c.states, parked: c.stateParked, decisions: c.stateDecisions } as never, cur as never, { recount: true, door: true });
       cur = await c.states.findOne({ _id: project._id });
     }
@@ -338,7 +346,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     // At most 200 Parked lines an hour from one key (Parked has no cap, so a runaway agent is stopped by rate).
     const parkOps = ops.filter(x => x.op === 'park' || x.op === 'park_line').length;
     if (parkOps) {
-      const recentP = await c.stateParked.countDocuments({ projectId: project._id, ...(rc.keyId ? { key: rc.keyId } : { by }), parkedAt: { $gt: new Date(now.getTime() - 3_600_000) } } as never);
+      const recentP = await c.stateParked.countDocuments({ projectId: project._id, ...(rc.keyId ? { key: rc.keyId } : { parkedBy: by }), parkedAt: { $gt: new Date(now.getTime() - 3_600_000) } } as never);
       if (recentP + parkOps > PARK_PER_HOUR) throw new InputError(`That is more than ${PARK_PER_HOUR} Parked lines an hour from one key. Wait a while, or park fewer.`);
     }
     // Parked lines and decisions are rows of their own, written as the ops run (the whole call is one transaction); only the counts go on the State.
@@ -348,7 +356,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     let rowTick = 0; // rows made in one call get distinct milliseconds, so their order is kept
     const parkedLine = (r: StateParkedDoc): StateLine => ({ id: r.id, text: r.text, ...(r.ref ? { ref: r.ref } : {}), ...(r.waitsOn ? { waitsOn: r.waitsOn } : {}), ...(r.when ? { when: r.when } : {}), by: r.by, ...(r.src ? { src: r.src } : {}), at: r.at });
     const addParked = async (l: StateLine, when: string | undefined) => {
-      await c.stateParked.insertOne({ _id: rowId(), projectId: project._id, id: l.id, text: l.text, ...(when ? { when } : {}), ...(l.ref ? { ref: l.ref } : {}), ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), by: l.by, ...(l.src ? { src: l.src } : {}), ...(rc.keyId ? { key: rc.keyId } : {}), at: l.at, parkedAt: new Date(now.getTime() + rowTick++), ...placement } as never);
+      await c.stateParked.insertOne({ _id: rowId(), projectId: project._id, id: l.id, text: l.text, ...(when ? { when } : {}), ...(l.ref ? { ref: l.ref } : {}), ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), by: l.by, ...(l.src ? { src: l.src } : {}), ...(rc.keyId ? { key: rc.keyId } : {}), parkedBy: by, at: l.at, parkedAt: new Date(now.getTime() + rowTick++), ...placement } as never);
       parkedDelta++;
     };
     const takeParked = async (id: string): Promise<StateLine> => {
@@ -1004,8 +1012,10 @@ const parkedRow = (l: StateLine | StateParkedDoc, w: (by: string) => { writtenBy
 export function stateOut(d: StateDoc, reader: string, names: Names, lists?: StateLists): StateOut {
   // A State not moved yet (no counts) still answers from its legacy arrays.
   const legacyLive = (d.decisions ?? []).filter(x => !x.archivedAt);
-  const shownDecisions = lists?.decisionsList ?? legacyLive.slice(-AGENT_DECISIONS);
-  const parkedShown = lists?.parkedList;
+  // A State still holding its arrays (not moved: counts missing, or a move that was refused) answers from them.
+  const unmoved = !!(d.parked || d.decisions);
+  const shownDecisions = unmoved ? legacyLive.slice(-(lists?.page ? PAGE_ROWS : AGENT_DECISIONS)) : (lists?.decisionsList ?? []);
+  const parkedShown = unmoved ? (lists?.parkedList ? [...(d.parked ?? [])].reverse().slice(0, PAGE_ROWS).map(l => ({ ...l, parkedAt: l.at })) : undefined) : lists?.parkedList;
   const parkedTotal = d.parkedCount ?? d.parked?.length ?? 0;
   const decisionsTotal = d.decisionsCount ?? legacyLive.length;
   const w = (by: string) => {
