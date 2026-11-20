@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 210. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 211. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -15,6 +15,7 @@ Copy of the Work OS state, version 210. WORK-STATE.md is a copy of the State, wr
 7. When Parked and list_decisions are live: rewrite the Orders start bullet (Later for findings to pick up soon, Parked with when for features set aside, add_decision, list_decisions, list_parked); not before, or sessions are told about tools that don't exist yet. — waits on the release with Parked
 8. Parked and decisions out of the State document (Om, 20 Nov: they must not live in State directly): own collections, one dated row per entry, no cap, search and paging; State keeps counts; move the existing decisions. Before releasing Parked. — waits on Om's go on the storage plan
 9. Usage recording, Fable's 7 steps plus the weekly improve loop (design in note a289ffec58): Opus plan, then Sonnet build — waits on Om's account switch
+10. Messaging fixes from Om's chat failing to reach the lead (20 Nov): one short unique address per session shown everywhere; a name that matches several or no live session is refused with the list; a chat gets its own session on its first send so replies reach it; teammates' sessions addressable on a shared project; prompt-submit hook says N unread. Design note first, then build — waits on Om's account switch
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -66,4 +67,5 @@ Copy of the Work OS state, version 210. WORK-STATE.md is a copy of the State, wr
 - Om's worker runs from dev and now holds the usage reader; production ignores `usage` until the release, but the worker marks rows sent once the post succeeds. If it restarted before the release, clear its usage offsets after the release so the 30-day backfill goes again. — waits on the usage release
 - Mail: mail_draft / mail_reply_draft that saves to Drafts, threaded on the original, for outside-domain mail a person sends himself (Om's chat, 20 Nov, m_d4b1a5e5731c) — waits on Om's account switch
 - Messages sent to a session name that matched no session (m_c5acf64b5e63, m_83aca68c72ce from Om's chat) sit unread and only the sender can open them: refuse unknown names on production too, and let the owner see and re-address stranded ones — waits on check whether production still accepts waiting labels
-<!-- work-os-copy sha1:9118431b52896e1d68965ea3160145ae4032feea -->
+- Monitoring service on the Oracle Micro (Akash): Work OS needs a public /health endpoint (today only /api/live); alerts may later become Work OS messages (Om's chat, m_c7651765f8d6)
+<!-- work-os-copy sha1:58f721c49970346b274325081e375d68de9b3a7d -->
