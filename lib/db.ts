@@ -614,7 +614,7 @@ export type ClaudeUsageEventDoc = { _id: string; orgId: string; ownerId: string;
 /** The label (the part of the email before @) of a Claude account id a worker reported. Owner only. */
 export type ClaudeAccountDoc = { _id: string; orgId: string; ownerId: string; id: string; label: string; lastSeen: Date };
 /** Policy counters for API keys (rate limit, trash limit). TTL index keeps 2 hours. */
-export type PolicyEventDoc = { _id: string; keyId: string; kind: 'call' | 'trash' | 'worker' | 'mail_trash' | 'mail_send' | 'intake' | 'agent'; at: Date; n?: number };
+export type PolicyEventDoc = { _id: string; keyId: string; kind: 'call' | 'trash' | 'worker' | 'mail_trash' | 'mail_send' | 'intake' | 'agent'; at: Date; n?: number; /** A call's session (its presence key: the session id it passed, else the key): the session's share and the top-3 line. */ sid?: string };
 /**
  * One report sent in through an intake (lib/intake.ts): the sender's own id, so the same report sent again finds its task.
  * Unique on (source, reportId). taskId and ref are null while the task is being made (`claimedAt` says since when).

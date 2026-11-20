@@ -754,7 +754,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       { ...config, inputSchema: { ...(config as { inputSchema?: object }).inputSchema, session: sessionArg }, title: TOOLS[name].title, description: TOOLS[name].description },
       (async (...a: unknown[]) => {
         try {
-          await beforeTool(caller, name);
+          await beforeTool(caller, name, { session: identOf(name, a).session });
         } catch (err) {
           if (err instanceof PolicyError) {
             if (name !== 'feedback') noteRefusal(sessionKey(identOf(name, a)), name, 'policy');
