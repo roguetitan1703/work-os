@@ -523,6 +523,70 @@ try {
   await sleep(500);
   const offMarked = await rawDb.collection('needs').findOne({ _id: needOff.id });
   check('dm: with the Discord switch off, an old Need is not sent', !dmsTo(DA).some(d => d.content.includes(`Need #${needOff.ref}`)) && !offMarked?.discordDmAt, JSON.stringify(dmsTo(DA).map(d => d.content.slice(0, 60))));
+
+  // ---- 6. the agent tools ----
+  const png = Buffer.from('iVBORw0KGgo=', 'base64');
+  st.files['/cdn/v4.png'] = { type: 'image/png', body: png };
+  st.files['/cdn/v4.pdf'] = { type: 'application/pdf', body: Buffer.from('%PDF-1.4 v4') };
+  const cdn = n => `http://127.0.0.1:${process.env.E2E_DISCORD_PORT}/cdn/${n}`;
+  const mAtt = put(raw({ channel: GEN, content: 'see the files', author: { id: DA, username: 'owner' }, attachments: [
+    { filename: 'a.png', url: cdn('v4.png'), size: png.length, content_type: 'image/png' },
+    { filename: 'b.pdf', url: cdn('v4.pdf'), size: 11, content_type: 'application/pdf' },
+    { filename: 'c.zip', url: cdn('v4.png'), size: 5, content_type: 'application/zip' },
+    { filename: 'd.png', url: cdn('v4.png'), size: 11_000_000, content_type: 'image/png' },
+    { filename: 'e.png', url: 'https://evil.example.com/e.png', size: 5, content_type: 'image/png' },
+  ] }));
+  const mRep = put(raw({ channel: GEN, content: 'replying to the files', author: { id: DB, username: 'bea' }, ref: mAtt.id }));
+  mRep.referenced_message = mAtt;
+  const link = id => `https://discord.com/channels/${G1}/${GEN}/${id}`;
+  const rd = await mcp('discord_read_messages', { channel: GEN, since: '1d' });
+  const rows = rd.messages ?? [];
+  const rAtt = rows.find(x => x.id === mAtt.id);
+  const rRep = rows.find(x => x.id === mRep.id);
+  check('read: compact rows (id, author, at, text, replyTo, attachments)', !!rAtt && !!rRep && /^\d{4}-\d\d-\d\d \d\d:\d\d$/.test(rAtt.at) && rAtt.text === 'see the files' && rAtt.attachments?.[0] === '[1] a.png' && rRep.replyTo === mAtt.id + ' "see the files"', JSON.stringify({ rAtt, rRep, n: rows.length, ids: [mAtt.id, mRep.id] }).slice(0, 700));
+  check('read: no links in the compact shape, and a count and timezone', !JSON.stringify(rows).includes('discord.com/channels') && rd.count === rows.length && !!rd.timezone, JSON.stringify({ c: rd.count, tz: rd.timezone }));
+  const rdL = await mcp('discord_read_messages', { channel: GEN, since: '1d', links: true });
+  check('read: links:true gives the old shape (a jump link per message)', JSON.stringify(rdL).includes('discord.com/channels'), JSON.stringify(rdL).slice(0, 200));
+  const att1 = await mcp('discord_attachment', { message_link: link(mAtt.id), index: 1 });
+  check('attachment: an image comes back as base64 marked untrusted', att1.untrusted === true && att1.content_type === 'image/png' && att1.content_base64 === png.toString('base64'), JSON.stringify(att1).slice(0, 200));
+  const att2 = await mcp('discord_attachment', { message_link: link(mAtt.id), index: 2 });
+  check('attachment: a PDF is allowed', att2.content_type === 'application/pdf' && !!att2.content_base64, JSON.stringify(att2).slice(0, 160));
+  const att3 = await mcpAs(await mkKey({ agent: 'claude', userId: ME.userId, orgId: ME.orgId, name: 'v4 att' }), 'discord_attachment', { message_link: link(mAtt.id), index: 3 });
+  check('attachment: other types are refused', att3.isError && /Only screenshots and PDFs/.test(att3.text), att3.text.slice(0, 160));
+  const att4 = await mcpAs(await mkKey({ agent: 'claude', userId: ME.userId, orgId: ME.orgId, name: 'v4 att4' }), 'discord_attachment', { message_link: link(mAtt.id), index: 4 });
+  check('attachment: a file over 10 MB is refused', att4.isError && /10 MB/.test(att4.text), att4.text.slice(0, 160));
+  const att5 = await mcpAs(await mkKey({ agent: 'claude', userId: ME.userId, orgId: ME.orgId, name: 'v4 att5' }), 'discord_attachment', { message_link: link(mAtt.id), index: 5 });
+  check('attachment: a file not on Discord\u2019s host is not fetched', att5.isError && /not on Discord/.test(att5.text), att5.text.slice(0, 160));
+  const att6 = await mcpAs(await mkKey({ agent: 'claude', userId: ME.userId, orgId: ME.orgId, name: 'v4 att6' }), 'discord_attachment', { message_link: link(mAtt.id), index: 9 });
+  check('attachment: an index past the files is refused', att6.isError && /index is 1 to 5/.test(att6.text), att6.text.slice(0, 160));
+  const mBlk = put(raw({ channel: BLK, content: 'in a blocked channel', attachments: [{ filename: 'x.png', url: cdn('v4.png'), size: 8, content_type: 'image/png' }] }));
+  const att7 = await mcpAs(await mkKey({ agent: 'claude', userId: ME.userId, orgId: ME.orgId, name: 'v4 att7' }), 'discord_attachment', { message_link: `https://discord.com/channels/${G1}/${BLK}/${mBlk.id}`, index: 1 });
+  check('attachment: a blocked channel is refused', att7.isError, att7.text.slice(0, 160));
+  // discord_reply: the first line edits the Recorded reply, later ones post under the message
+  const k6 = await taskOf(p1.id);
+  const rk = await mkKey({ agent: 'claude', userId: ME.userId, orgId: ME.orgId, name: 'v4 reply' });
+  const edits6 = st.edits.length;
+  const posts6 = st.posts.length;
+  const rp1 = await mcpAs(rk, 'discord_reply', { task: k6.ref, text: 'Fixed in the next build' });
+  const ed = st.edits.slice(edits6).find(e => e.id === k6.source.replyId);
+  check('reply: the first line edits the Recorded reply', !rp1.isError && /^Recorded \[#\d+\]\(<[^>]*>\): Fixed in the next build$/.test(ed?.body.content ?? '') && st.posts.length === posts6, JSON.stringify({ rp1: rp1.text.slice(0, 120), ed: ed?.body }));
+  const rp2 = await mcpAs(rk, 'discord_reply', { task: k6.ref, text: 'Shipped, please check' });
+  check('reply: a later line is a new reply under the message', !rp2.isError && st.posts.length === posts6 + 1 && st.posts.at(-1).body.message_reference?.message_id === p1.id && st.posts.at(-1).body.content === 'Shipped, please check', JSON.stringify(st.posts.at(-1)?.body));
+  const rp3 = await mcpAs(rk, 'discord_reply', { task: k6.ref, text: 'x'.repeat(141) });
+  check('reply: over 140 characters is refused', rp3.isError && /140/.test(rp3.text), rp3.text.slice(0, 120));
+  const plain = (await call('add_task', { title: 'Not from Discord' })).created.ref;
+  const rp4 = await mcpAs(rk, 'discord_reply', { task: plain, text: 'hello' });
+  check('reply: a task that did not come from Discord is refused', rp4.isError && /did not come from Discord/.test(rp4.text), rp4.text.slice(0, 120));
+  const rp5 = await mcpAs(rk, 'discord_reply', { task: 987654, text: 'hello' });
+  check('reply: a task that is not there is not found', rp5.isError && /not found/.test(rp5.text), rp5.text.slice(0, 120));
+  const dn = await mcpAs(rk, 'complete_task', { task: k6.ref, note: 'done in v4 test' });
+  check('complete_task: a Discord task reminds the agent it can say so (discord_reply)', /discord_reply/.test(JSON.stringify(dn.json?.discordReminder ?? dn.text)), dn.text.slice(0, 200));
+  check('tools: the removed discord_message_to_task is gone', (await mcpAs(rk, 'discord_message_to_task', { message_link: link(mAtt.id) })).isError);
+  await sleep(600);
+  const hr = await rawDb.collection('requestStats').find({}).toArray();
+  const counts = {};
+  for (const h of hr) for (const [k, v] of Object.entries(h.counts ?? {})) if (k.startsWith('mcp-tool|')) counts[k] = (counts[k] ?? 0) + v;
+  check('usage: every tool call is counted by name (mcp-tool|<name>)', (counts['mcp-tool|discord_reply'] ?? 0) >= 4 && (counts['mcp-tool|discord_attachment'] ?? 0) >= 7 && (counts['mcp-tool|discord_read_messages'] ?? 0) >= 2, JSON.stringify(counts));
 } catch (e) {
   check('discord-v4 (error)', false, e?.stack || String(e));
 }

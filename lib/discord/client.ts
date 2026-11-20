@@ -208,7 +208,7 @@ export type RawMessage = {
   mentions: RawUser[];
   mention_roles: string[];
   mention_everyone: boolean;
-  attachments: { filename: string; url: string; size: number }[];
+  attachments: { filename: string; url: string; size: number; content_type?: string }[];
   embeds: unknown[];
   sticker_items?: unknown[];
   message_reference?: { message_id?: string; channel_id?: string };

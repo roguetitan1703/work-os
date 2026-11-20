@@ -218,7 +218,10 @@ const stub = http.createServer((q, s) => {
     if ((m = u.match(/^\/guilds\/(\d+)\/roles$/)) && chans[m[1]]) return jsonOut(s, 200, [{ id: m[1], name: '@everyone', permissions: String(VIEW | HIST) }, { id: R_A, name: 'owners', permissions: '0' }, { id: R_BOT, name: 'bot', permissions: '0', tags: { bot_id: BOT } }]);
     if ((m = u.match(/^\/guilds\/(\d+)\/members\/(\d+)$/))) { const r = members[m[1]]?.[m[2]]; return r ? jsonOut(s, 200, { roles: r, user: { id: m[2], username: 'u' + m[2].slice(-2) } }) : jsonOut(s, 404, { message: 'Unknown Member' }); }
     if ((m = u.match(/^\/guilds\/\d+\/commands$/)) || (m = u.match(/^\/applications\/\d+\/guilds\/\d+\/commands$/))) return jsonOut(s, 200, []);
+    if ((m = u.match(/^\/channels\/(\d+)\/messages\/(\d+)$/)) && q.method === 'PATCH') return jsonOut(s, 200, { id: m[2] });
     if ((m = u.match(/^\/channels\/(\d+)\/messages\/(\d+)$/))) { const x = (msgs[m[1]] ?? []).find(y => y.id === m[2]); return x ? jsonOut(s, 200, x) : jsonOut(s, 404, { message: 'Unknown Message' }); }
+    if (u === '/cdn/lkq.png') { s.statusCode = 200; s.setHeader('content-type', 'image/png'); return s.end(Buffer.from('iVBORw0KGgo=', 'base64')); }
+    if ((m = u.match(/^\/channels\/(\d+)\/messages$/)) && q.method === 'POST') return jsonOut(s, 200, { id: '777000000000000001' });
     if ((m = u.match(/^\/channels\/(\d+)\/messages$/))) return jsonOut(s, 200, msgs[m[1]] ?? []);
     if ((m = u.match(/^\/channels\/(\d+)$/))) { const c = Object.values(chans).flat().find(x => x.id === m[1]); return c ? jsonOut(s, 200, c) : jsonOut(s, 404, { message: 'Unknown Channel' }); }
     jsonOut(s, 404, { message: 'not stubbed' });
@@ -459,17 +462,15 @@ try {
     // for the Discord DM button (flow DC1): one per project, each answered by the control press
     // asked with the other key (another asker word) so they do not count against the five open Needs the code key may have with A
     const askChat = (project, text) => mustMcp(A.oauthTok, 'ask', { project, to: 'me', kind: 'approve', ask: text });
-    P.needDc = (await askChat(P.projectName, can('pvneed', ['A']) + ' dm button?')).need.id;
-    S.needDc = (await askChat(S.projectName, can('shneed', ['A', 'T']) + ' dm button?')).need.id;
   }
   // for the buttons under the bot's reply (lib/discord/buttons.ts): a task the bot recorded, one per press and project (each press changes it)
   {
     let mid = 0;
     for (const [o, tg, allow] of [[P, 'pv', ['A']], [S, 'sh', ['A', 'T']]]) {
-      for (const k of ['btnUndo', 'btnDone', 'btnFor']) {
+      for (const k of ['btnUndo', 'btnDone', 'btnFor', 'btnReply']) {
         const r = await mustMcp(A.chat, 'add_task', { title: can(tg + k, allow) + ' recorded from Discord', project: o.projectName, assignee: 'me' });
         o[k] = r.created.ref;
-        await rawDb.collection('tasks').updateOne({ orgId: A.orgId, ref: o[k] }, { $set: { source: { kind: 'discord', guildId: G1, channelId: GEN1, messageId: '88800000000000' + String(1000 + ++mid), url: 'https://discord.com/channels/1/2/3', tracked: 'issue' } } });
+        await rawDb.collection('tasks').updateOne({ orgId: A.orgId, ref: o[k] }, { $set: { source: { kind: 'discord', guildId: G1, channelId: GEN1, messageId: '88800000000000' + String(1000 + ++mid), url: 'https://discord.com/channels/1/2/3', tracked: 'issue', replyId: '777000000000' + String(100000 + mid), replyChannelId: GEN1 } } });
       }
     }
   }
@@ -563,8 +564,8 @@ try {
   // Discord messages: the first organization's #general (A and T), its #secret (A only), the second's (X)
   const mid = n => '8880000000000000' + String(n).padStart(2, '0');
   msgs[GEN1] = [{ id: mid(1), channel_id: GEN1, content: can('dgen1', ['A', 'T']), author: { id: DU, username: 'u' }, timestamp: now.toISOString(), mentions: [], mention_roles: [], mention_everyone: false, embeds: [], attachments: [], type: 0 }];
-  msgs[SEC1] = [{ id: mid(2), channel_id: SEC1, content: can('dsec1', ['A']), author: { id: DU, username: 'u' }, timestamp: now.toISOString(), mentions: [], mention_roles: [], mention_everyone: false, embeds: [], attachments: [], type: 0 }];
-  msgs[GEN2] = [{ id: mid(3), channel_id: GEN2, content: can('dgen2', ['X']), author: { id: DU, username: 'u' }, timestamp: now.toISOString(), mentions: [], mention_roles: [], mention_everyone: false, embeds: [], attachments: [], type: 0 }];
+  msgs[SEC1] = [{ id: mid(2), channel_id: SEC1, content: can('dsec1', ['A']), author: { id: DU, username: 'u' }, timestamp: now.toISOString(), mentions: [], mention_roles: [], mention_everyone: false, embeds: [], attachments: [{ filename: 'lkq-secret.png', url: `http://127.0.0.1:${process.env.E2E_DISCORD_PORT || 4401}/cdn/lkq.png`, size: 8, content_type: 'image/png' }], type: 0 }];
+  msgs[GEN2] = [{ id: mid(3), channel_id: GEN2, content: can('dgen2', ['X']), author: { id: DU, username: 'u' }, timestamp: now.toISOString(), mentions: [], mention_roles: [], mention_everyone: false, embeds: [], attachments: [{ filename: 'lkq-other.png', url: `http://127.0.0.1:${process.env.E2E_DISCORD_PORT || 4401}/cdn/lkq.png`, size: 8, content_type: 'image/png' }], type: 0 }];
 
   // Invitations: one pending in each organization (made through the app, as an owner does)
   for (const p of [A, X]) p.cookie = await signIn(p.email);
@@ -632,18 +633,15 @@ try {
   Object.assign(TARGET.T, { needAns: P.needAns, needAnsS: S.needAns, needWd: P.needWd, needWdS: S.needWd });
   Object.assign(TARGET.X, { needAns: S.needAns, needAnsS: S.needAns, needWd: S.needWd, needWdS: S.needWd });
   Object.assign(FAKE, { needAns: fakeUuid(), needAnsS: fakeUuid(), needWd: fakeUuid(), needWdS: fakeUuid() });
-  Object.assign(TARGET.T, { needDc: P.needDc, needDcS: S.needDc });
-  Object.assign(TARGET.X, { needDc: S.needDc, needDcS: S.needDc });
-  Object.assign(FAKE, { needDc: fakeUuid(), needDcS: fakeUuid() });
   // The buttons under the bot's reply: T aims at A's private project's, X and R at the shared project's.
-  Object.assign(TARGET.T, { btnUndo: P.btnUndo, btnDone: P.btnDone, btnFor: P.btnFor });
-  Object.assign(TARGET.X, { btnUndo: S.btnUndo, btnDone: S.btnDone, btnFor: S.btnFor });
-  Object.assign(FAKE, { btnUndo: 95001, btnDone: 95002, btnFor: 95003 });
+  Object.assign(TARGET.T, { btnUndo: P.btnUndo, btnDone: P.btnDone, btnFor: P.btnFor, btnReply: P.btnReply });
+  Object.assign(TARGET.X, { btnUndo: S.btnUndo, btnDone: S.btnDone, btnFor: S.btnFor, btnReply: S.btnReply });
+  Object.assign(FAKE, { btnUndo: 95001, btnDone: 95002, btnFor: 95003, btnReply: 95004 });
   // A's own (the control calls)
   FAKE_REF.v = FAKE;
   const OWN = { task: P.task, ref: P.taskRef, looseRef: P.looseRef, trashRef: P.trashRef, archRef: P.archRef, project: P.project, projectName: P.projectName, note: P.projNote, noteTitle: P.projNoteTitle, taskNote: P.noteId, sub: P.subNote, comment: P.comment, item: P.itemRef, itemProject: P.project, device: A.dev, folder: A.folder, session: A.session, job: A.job, review: A.review, push: A.push, passkey: String(A.passkey), invite: A.invite, member: R.userId, remote: P.remote, trashRef2: P.trashRef2, trashRef3: P.trashRef3, trashRef4: P.trashRef4, comment2: P.comment2, sub2: P.subNote2, invite2: A.invite2, boiler: P.boiler, give: P.giveRef };
 
-  Object.assign(OWN, { btnUndo: P.btnUndo, btnDone: P.btnDone, btnFor: P.btnFor });
+  Object.assign(OWN, { btnUndo: P.btnUndo, btnDone: P.btnDone, btnFor: P.btnFor, btnReply: P.btnReply });
   OWN.ordersNote = P.ordersNote;
   FAKE.ordersNote = mutate(P.ordersNote);
   OWN.msg = P.msg;
@@ -655,7 +653,6 @@ try {
   OWN.sid = P.sid;
   FAKE.sid = mutate(P.sid);
   Object.assign(OWN, { needAns: P.needAns, needAnsS: S.needAns, needWd: P.needWd, needWdS: S.needWd });
-  Object.assign(OWN, { needDc: P.needDc, needDcS: S.needDc });
 
   // ── the probes ──
   const ctx = { A, T, X, R, P, S, XO, TP, G1, G2, GEN1, SEC1, GEN2, DA, DT, DX, DR, DU, mid };
@@ -1437,10 +1434,11 @@ function AUDIT() {
     M('discord_read_messages', { channel: GEN2, since: '3d' }, { label: 'second org channel by id', ok: dOk, aim: true, aimKeys: [], only: ['T', 'R', 'N'], control: false }),
     M('discord_read_messages', { channel: `https://discord.com/channels/${G2}/${GEN2}`, since: '3d' }, { label: 'second org channel by link', ok: dOk, aim: true, aimKeys: [], only: ['T', 'R', 'N'], control: false }),
   );
-  add('mcp discord_message_to_task',
-    M('discord_message_to_task', { message_link: `https://discord.com/channels/${G2}/${GEN2}/8880000000000000${'03'}` }, { label: 'second org message', aim: true, aimKeys: [], only: ['T', 'R', 'N'], control: false }),
-    M('discord_message_to_task', { message_link: `https://discord.com/channels/${G1}/${SEC1}/8880000000000000${'02'}` }, { label: '#secret message', aim: true, aimKeys: [], only: ['T', 'X', 'R', 'N'] }),
+  add('mcp discord_attachment',
+    M('discord_attachment', { message_link: `https://discord.com/channels/${G2}/${GEN2}/8880000000000000${'03'}`, index: 1 }, { label: 'second org file', aim: true, aimKeys: [], only: ['T', 'R', 'N'], control: false }),
+    M('discord_attachment', { message_link: `https://discord.com/channels/${G1}/${SEC1}/8880000000000000${'02'}`, index: 1 }, { label: '#secret file', aim: true, aimKeys: [], only: ['T', 'X', 'R', 'N'], ok: r => r.ok && /content_base64/.test(r.text) }),
   );
+  add('mcp discord_reply', M('discord_reply', t => ({ task: t.btnReply, text: 'lkq a short line' }), aim(['btnReply'], { stage: 1 })));
 
   // ── Needs (slice 4): one ask to one person. NO tool answers one (checked above); the app's action does, for the addressee only ──
   add('mcp ask',
@@ -1676,7 +1674,7 @@ function AUDIT() {
   add('route GET /api/cron/alerts', cronProbe('GET'));
   add('route POST /api/cron/alerts', cronProbe('POST'));
   add('route POST /api/cron/reel', { kind: 'route', ok: r => two(r.status), call: ({ p }) => req('POST', '/api/cron/reel', { cookie: p.cookie, bearer: p.chat, body: { post: 'lkq', container: '10000001', slot: 1900000000 } }), control: false /* the CRON_SECRET holder is the server timer; the reel suite runs it */ });
-  add('route GET /api/discord/connect', route('GET', '/api/discord/connect', { ok: r => r.status === 303 && /oauth2/authorize/.test(r.location ?? ''), controlOk: r => r.status === 303 && /oauth2/authorize/.test(r.location ?? '') }));
+  add('route GET /api/discord/connect', route('GET', '/api/discord/connect', { ok: r => r.status === 303 && /oauth2\/authorize/.test(r.location ?? ''), controlOk: r => r.status === 303 && /oauth2\/authorize/.test(r.location ?? '') }));
   add('route GET /api/discord/connect/callback', route('GET', '/api/discord/connect/callback?code=lkqcode&state=lkqstatelkqstatelkqstate1', { ok: r => r.status === 303 && /discord=linked/.test(r.location ?? ''), controlOk: r => r.status === 303 && /discord=failed/.test(r.location ?? '') }));
   add('route POST /api/discord/gateway', { kind: 'route', ok: r => two(r.status), call: ({ p }) => req('POST', '/api/discord/gateway', { cookie: p.cookie, bearer: p.chat, body: { event: 'READY', data: {} } }), control: false /* only the listener holds the CRON_SECRET; the discord-v4 suite runs it */ });
   add('route POST /api/discord/interactions', { kind: 'route', ok: r => two(r.status), call: () => req('POST', '/api/discord/interactions', { body: '{"type":1}', headers: { 'x-signature-ed25519': '00'.repeat(64), 'x-signature-timestamp': String(Math.floor(Date.now() / 1000)) } }), label: 'unsigned', control: false });
@@ -1819,13 +1817,6 @@ function AUDIT() {
   add('discord component undo', disc(3, t => ({ custom_id: `wo:undo:${t.btnUndo}`, component_type: 2 }), aim(['btnUndo'], { stage: 1, ok: pressed })));
   add('discord component done', disc(3, t => ({ custom_id: `wo:done:${t.btnDone}`, component_type: 2 }), aim(['btnDone'], { stage: 1, ok: pressed })));
   add('discord component for', disc(3, t => ({ custom_id: `wo:for:${t.btnFor}`, component_type: 3, values: [A.userId] }), aim(['btnFor'], { stage: 1, ok: pressed })));
-  // A press on a Need button in a DM: no server, only the user. Only the addressee's own linked account answers (type 7 updates the message);
-  // every other press (another member, another organization, an unknown id) is an ephemeral refusal (type 4).
-  const discDm = (data, o = {}) => ({ kind: 'discord', ok: r => /"type":\s*7[,}]/.test(r.text), call: async ({ p, o: t, ctx }) => interact(null, linkedDiscord(p), 3, typeof data === 'function' ? data(t, ctx, p) : data, {}), ...o });
-  add('discord component need',
-    discDm(t => ({ custom_id: `wo:need:${t.needDc}:yes`, component_type: 2 }), aim(['needDc'], { stage: 1, label: 'a Need I cannot see' })),
-    discDm(t => ({ custom_id: `wo:need:${t.needDcS}:yes`, component_type: 2 }), aim(['needDcS'], { stage: 1, label: 'a Need I can read, addressed to someone else' })),
-  );
   // Actions with no result type (void or a bare value) refuse someone signed out by throwing.
   for (const id of [`action ${N_}searchMentionsAction`, `action ${ST}markAllReadAction`, 'action app/(app)/settings/blocked-actions.ts#saveBlockedChannels']) for (const pr of items[id].probes) pr.throws = true;
   return items;
@@ -1929,8 +1920,8 @@ function MISUSE({ A, T, X, R }) {
   L('the cron secret in the query on /api/cron/reel', () => req('POST', `/api/cron/reel?key=${CRON}`, { body: { post: 'lkq', container: '10000001', slot: 1900000000 } }));
   L('a chat key on /api/intake/mailloom', () => req('POST', '/api/intake/mailloom', { bearer: A.chat, body: { report_id: 'lkq', reporter: 'lkq@example.test', title: 'lkq', description_markdown: 'lkq' } }), r => r.status === 401 || r.status === 503); // 503 while the intake is not configured (this suite's mode)
   L('a session cookie on /api/intake/mailloom/notice', () => req('POST', '/api/intake/mailloom/notice', { cookie: A.cookie, body: { text: 'lkq' } }), r => r.status === 401 || r.status === 503);
-  L('a chat key on /api/discord/connect', () => req('GET', '/api/discord/connect', { bearer: A.chat }));
-  L('a chat key on /api/discord/connect/callback', () => req('GET', '/api/discord/connect/callback?code=lkq&state=lkqstatelkqstatelkqstate1', { bearer: A.chat }));
+  L('a chat key on /api/discord/connect', () => req('GET', '/api/discord/connect', { bearer: A.chat }), r => r.status === 303 && /\/login/.test(r.location ?? ''));
+  L('a chat key on /api/discord/connect/callback', () => req('GET', '/api/discord/connect/callback?code=lkq&state=lkqstatelkqstatelkqstate1', { bearer: A.chat }), r => r.status === 303 && /\/login/.test(r.location ?? ''));
   L('a chat key on /api/discord/gateway', () => req('POST', '/api/discord/gateway', { bearer: A.chat, body: { event: 'MESSAGE_CREATE', data: { guild_id: G1 } } }));
   L('a session cookie on /api/discord/gateway', () => req('POST', '/api/discord/gateway', { cookie: A.cookie, body: { event: 'MESSAGE_CREATE', data: { guild_id: G1 } } }));
   L('the cron secret in the query on /api/discord/gateway', () => req('POST', `/api/discord/gateway?key=${CRON}`, { body: { event: 'READY', data: {} } }));
