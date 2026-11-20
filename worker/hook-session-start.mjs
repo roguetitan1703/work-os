@@ -13,7 +13,7 @@
 //                 network). That session has no token, so it sends no state events.
 import os from 'node:os';
 import { identityKey, identityOf } from './hook-identity.mjs';
-import { MAX_BRIEF, SESSION_TOKEN_RE, cut, deps, folderCandidates, frameInbox, git, keepProc, mcpCall, postAgent, quietPath, quietRun, readKept, readMarker, keepToken, repoFacts, run, sizeOf, statusHash, str, unfiledText, workerHome, writeMarker } from './hook-lib.mjs';
+import { MAX_BRIEF, SESSION_TOKEN_RE, cut, deps, folderCandidates, frameInbox, git, keepProc, mcpCall, postAgent, quietPath, readKept, readMarker, keepToken, repoFacts, run, sizeOf, statusHash, str, unfiledText, workerHome, writeMarker } from './hook-lib.mjs';
 
 // The folder decides the project (H13): the body carries the ids of the worker folders that contain the session's folder
 // (`folders`, longest first); the server takes the first one linked on this PC. The git remote is sent as information only.
@@ -90,7 +90,6 @@ const transcriptOf = (input) => (typeof input.transcript_path === 'string' ? inp
 
 /** SessionStart: the hook's JSON answer (or null for "print nothing"). */
 export async function sessionStart(input) {
-  if (quietRun()) return null;
   const cwd = input.cwd || process.cwd();
   const sid = input.session_id;
   const { remote, where } = whereOf(cwd);

@@ -263,7 +263,7 @@ export function shellDeny(input, env = process.env) {
 
 /**
  * H12: one refused WORK-STATE.md write that never reached Work OS (a count, nothing else). Never throws and never waits long. Not for a
- * subagent (agent_id): the count rides on a tool event, which would mark an idle parent working (see hook-tool-start.mjs).
+ * subagent (agent_id; pre-tool runs for subagents, hook-gate.mjs): the count rides on a tool event, which would mark an idle parent working.
  */
 async function countRefused(input) {
   try { if (input.session_id && !input.agent_id) await postEvent(input.session_id, 'tool', { copy: 'refused' }, COUNT_TIMEOUT_MS); } catch {}

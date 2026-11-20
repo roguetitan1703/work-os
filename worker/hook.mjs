@@ -22,10 +22,12 @@
 // no matching project, a timeout or anything unexpected prints nothing and exits 0, so a hook can never stop a session.
 // `node worker.mjs hooks install` (worker/hooks-install.mjs) copies this file and the files it needs (FILES there) to
 // <worker config dir>/hooks and adds the entries to ~/.claude/settings.json. How the start brief signs in: see
-// hook-session-start.mjs.
+// hook-session-start.mjs. Every hook passes the one gate first (hook-gate.mjs): a subagent's call, a -p or SDK run and the parent
+// process are decided there, once, for all of them (RULES).
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { EVENTS, run } from './hook-lib.mjs';
+import { gate } from './hook-gate.mjs';
 import { timeoutAnswer } from './hook-pre-tool.mjs';
 
 // What tests and flows import from here.
@@ -50,7 +52,9 @@ export async function main(event, stdinText, { cloud = false, server = null, pro
     run.project = project;
     let input = {};
     try { input = JSON.parse(stdinText || '{}'); } catch {}
-    const out = await (await import(`./hook-${event}.mjs`)).handle(input);
+    const g = gate(event, input);
+    if (!g.run) return '';
+    const out = await (await import(`./hook-${event}.mjs`)).handle(input, g);
     return out ? JSON.stringify(out) : '';
   } catch {
     return '';

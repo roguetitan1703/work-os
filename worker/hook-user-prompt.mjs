@@ -33,7 +33,7 @@ export const typedByPerson = (input) => typeof input?.prompt === 'string' && inp
 
 export async function userPrompt(input) {
   const sid = input.session_id;
-  if (!sid || input.agent_id) return null;
+  if (!sid) return null; // a subagent's prompt never gets here (hook-gate.mjs)
   const m = readMarker(sid);
   const line = m?.unfiled ? await unfiledStep(input, m) : '';
   const now = line.startsWith('Filed') ? readMarker(sid) : m;

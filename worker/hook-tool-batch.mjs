@@ -8,7 +8,7 @@ const EVERY_MS = 20_000;
 
 export async function toolBatch(input) {
   const sid = input.session_id;
-  if (!sid || input.agent_id) return null;
+  if (!sid) return null; // a subagent's batch never gets here (hook-gate.mjs)
   const m = readMarker(sid);
   if (!m?.presence) return null; // a session with no Work OS token never posts
   if (m.presence.state !== 'waiting' && Date.now() - (m.lastTool || 0) < EVERY_MS) return null;

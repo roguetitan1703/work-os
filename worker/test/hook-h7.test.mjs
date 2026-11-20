@@ -92,8 +92,7 @@ test('setup: a session with a kept token', async () => {
   assert.ok(lib.readKept(SID));
   // no waiting on real time in these tests
   waiter.clock.sleep = async () => {};
-  // the parent process and the run kind are set by the tests that check them (not this test runner's own environment)
-  waiter.parent.quiet = () => false;
+  // the parent process is set by the tests that check it (not this test runner's own environment)
   waiter.parent.find = () => null;
 });
 
@@ -431,10 +430,8 @@ test('wait: the parent dies while a poll is open: the poll is cancelled, the mes
 test('wait: a claude -p or Agent SDK run (CLAUDE_CODE_ENTRYPOINT sdk-*) does not wait at all', async () => {
   reset();
   setMarker(SID, { presence: { state: 'idle', at: Date.now(), postedAt: Date.now() } });
-  const keep = waiter.parent.quiet;
   const was = process.env.CLAUDE_CODE_ENTRYPOINT;
   try {
-    waiter.parent.quiet = lib.quietRun;
     for (const e of ['sdk-cli', 'sdk-ts', 'sdk-py']) {
       process.env.CLAUDE_CODE_ENTRYPOINT = e;
       waitAnswers.push({ status: 200, body: { wake: true, text: framed } });
@@ -446,7 +443,6 @@ test('wait: a claude -p or Agent SDK run (CLAUDE_CODE_ENTRYPOINT sdk-*) does not
     assert.equal(await run('wait', SID), '');
     assert.equal(lib.run.exitCode, 2, 'an interactive session still waits');
   } finally {
-    waiter.parent.quiet = keep;
     if (was === undefined) delete process.env.CLAUDE_CODE_ENTRYPOINT; else process.env.CLAUDE_CODE_ENTRYPOINT = was;
   }
 });
