@@ -8,7 +8,8 @@ panel; the worker is a small Node program on each machine.
 
 1. Paths never leave the machine. Work OS knows folders by `folderId` + display `name` only. One exception, by design (turbo mode below): the worker reports its projects folder (`projectsDir`) so the page can say where a clone will go.
 2. The worker does exactly these things: start, resume, stop, open a session in VS Code, and reopen/dismiss the sessions
-   it remembers were open before a restart ("VS Code and Reopen after a restart" below). It never runs commands from the
+   it remembers were open before a restart ("VS Code and Reopen after a restart" below), and install a newer worker release
+   that Om's release key signed ("Self-update" below). It never runs commands from the
    server and launches `claude` and VS Code with argument arrays (no shell string, except the macOS
    Terminal script, which must quote every value).
 3. A job's optional `prompt` is only ever text Om typed at Start. Work OS never fills it from a
