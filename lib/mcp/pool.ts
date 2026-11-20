@@ -25,8 +25,11 @@ function keyOf(baseUrl: string, caller: Caller, who: { name: string; modes: stri
   return JSON.stringify([baseUrl, caller.agent, caller.userId, caller.orgId, caller.keyId, caller.keyName, who.name, who.modes]);
 }
 
-/** An idle server for this caller, or a new one. Give it back with release() once its transport is closed. */
-export async function acquireMcpServer(baseUrl: string, caller: Caller): Promise<{ server: McpServer; release: () => Promise<void> }> {
+/**
+ * An idle server for this caller, or a new one. Give it back with release() once its answer is complete; release(true)
+ * closes it without keeping it (a stream the client dropped while a tool may still run on it).
+ */
+export async function acquireMcpServer(baseUrl: string, caller: Caller): Promise<{ server: McpServer; release: (discard?: boolean) => Promise<void> }> {
   const [people, modes] = await Promise.all([memberNames(caller.orgId), getOrgModes(caller.orgId)]);
   const who = { name: people[caller.userId] ?? '', modes: modes.map(m => m.name) };
   const key = keyOf(baseUrl, caller, who);
@@ -44,12 +47,13 @@ export async function acquireMcpServer(baseUrl: string, caller: Caller): Promise
   const s = server;
   return {
     server: s,
-    release: async () => {
+    release: async (discard = false) => {
       try {
         await s.close(); // disconnects the transport so the server can take the next one
       } catch {
         return; // a server that failed to close is not reused
       }
+      if (discard) return;
       const l = pool.get(key) ?? [];
       if (l.length >= MAX_IDLE_PER_KEY) return;
       l.push({ server: s, at: Date.now() });

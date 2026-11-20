@@ -154,7 +154,7 @@ export function cleanActivity(raw: unknown): Omit<DeviceActivity, 'at'> {
 /** Named session list a worker reports (sending folder names and titles was approved 2026-10-15). Strict: anything off is a 400. */
 export const MAX_SESSION_LIST = 50;
 const ANY_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const ORIGINS: SessionOrigin[] = ['vscode', 'cli', 'other'];
+const ORIGINS: SessionOrigin[] = ['vscode', 'cli', 'desktop', 'other'];
 /** Sessions the worker remembers as open before the PC restarted: id, where it was made, folder name, title. Strict, like the session list. */
 export const MAX_REOPEN = 20;
 export function cleanReopen(raw: unknown): ReopenItem[] {

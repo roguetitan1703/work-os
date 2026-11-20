@@ -55,6 +55,14 @@ export function dueReasons(state: StateLike | null, now: Date, project: string):
 }
 
 /**
+ * The fallback after "Call declutter", for Claude Code only (the steps are Claude Code's): a session that connected before the
+ * tool existed and has not re-read its tool list (start_work tells Claude Code to, app/api/mcp/[[...key]]/route.ts) cannot
+ * call it until Work OS is reconnected. Added by briefField (lib/data/declutter.ts) for a Claude Code caller and by the Stop
+ * hook's nudge (lib/data/nudges.ts).
+ */
+export const NO_DECLUTTER_TOOL = 'If your tools do not list declutter, ask your person to reconnect Work OS (/mcp, work-os, Reconnect).';
+
+/**
  * Groups of rows that share a title key (two or more). `key` is lib/notes-match.ts titleKey. An empty key and "untitled" are
  * exempt (every new page starts as Untitled), and so is anything the caller marks `exempt` (handovers).
  */

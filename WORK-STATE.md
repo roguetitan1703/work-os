@@ -1,15 +1,16 @@
-Copy of the Work OS state, version 144. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 158. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
 ## Now
-- Ship Harness end to end (#276, docs/flows/agent-system.md): R6 and R7 are live. Now: the Fable tool-calling review and its fixes, H16 measuring until about 3 Dec, then H17. Per part: Opus plans, Sonnet builds in its slot, Opus reviews, dev, tests; production per release with Om's go.
+- Make Work OS feel like your team at work, not a task app (Om 20 Nov): a Fable UX review of every screen and 10 everyday jobs, then a job-based redesign with one shared UI library and a Spotlight-style Ctrl+K search over everything. Meanwhile ship R9 (UI phases 3-5, Need withdraw fix, Claude page fixes, tools reload without reconnect). R8 is live. H16 measuring until about 3 Dec, then H17.
 
 ## Next
 1. Discord setup with Om signed in: Interactions URL, Register commands, pick the team digest channel, bot Send Messages on the team channel. — waits on Om signed in to Discord
 2. Use steps 1-3 for a week on cutroom and Work OS, then step 4 (Assign to anyone, Continue, lid-open resume; design in docs/flows/step-4.md, four questions wait on Om). — waits on a week of use (H16, about 3 Dec)
-3. R9 on dev 90042a9: UI revamp phases 3-5 (task why, sessions say why, Now/Next/Later chips). Add the withdraw_need fix and the phone bar, run the full e2e, then ask Om.
-4. Work OS feels like a task app (Om 20 Nov): design c5b8ebd9fd. Step A (Claude back in the phone bar: Today, Claude, +, Needs, Projects) building on builder-s; B (Today as your desk) and C (+ starts work, results feed) wait on Om's pick. — waits on Om: A only, A+B, or all of C
+3. Declutter nudges with nothing to do: 'due' counts Later over 25 and a stale '7 open Claude items' (daily cache) while declutter proposes 0 items. Due only when there is something to propose; refresh the count when tasks close. Seen 20 Nov after reconnecting the tools.
+4. R9 on dev 11a9344 (UI phases 3-5, Need withdraw fix, Claude page project/VS Code fixes, tools reload without reconnect; phone bar left out for the redesign): full e2e running, rerun failures alone, then ask Om for the release go.
+5. Redesign from the UI review (note c475deb871), six steps measured in taps with ui-tour: 1 library base (S2, running) -> 2 navigation -> 3 sessions first -> 4 Needs and Today; 5 one Spotlight search and 6 tasks beside them once the library exists. Phone bar 22f7b68 is replaced by the review's order.
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -41,4 +42,4 @@ Copy of the Work OS state, version 144. WORK-STATE.md is a copy of the State, wr
 - Projects now card: a stray space before " · 1 session" after the project name (seen 20 Nov at 390 and 1280).
 - flow-ui-p3: add a check that task #12 gets no Now why when the Now names #123 (pattern fixed in 62acdf7, checked by hand only).
 - ; lane rows say Next 2 twice (chip and the served line). Seen 20 Nov.
-<!-- work-os-copy sha1:cf6950a5ab8da264deb6bbcd174e821a29c4f8a1 -->
+<!-- work-os-copy sha1:e71d76437e66cec98a8337e976690aea02508108 -->
