@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 180. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 181. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -54,4 +54,5 @@ Copy of the Work OS state, version 180. WORK-STATE.md is a copy of the State, wr
 - Worker trust (20 Nov review): first installs still trust the server's file and sha256 (pin to a GitHub release + key); signed releases never expire; dispatched prompts keep the person's permission mode, so a PC in bypassPermissions lets the server run code unsigned.
 - Step 3 (builder-b 8b53acf) taps: see sessions 3->1, answer a Need and see the session 6->2, project goal no scroll, finished today 2->1, message a session 2, answer from a session row 2. live-release.test.mjs fails on dev too (not checked on dev).
 - Auto-update small items: cap latest.json read size (update.mjs:105); docs + What's new line: a computer that already runs a worker never needs the install command again; if a page asks for it, tell Om.
-<!-- work-os-copy sha1:dc6cbe404064d630a90b7139c42bf23aab079de6 -->
+- Redesign raised DB ops (redesign-int 4e0e17b): project page 33->37, Claude 21->23, Today 30->31, complete 44->45 (sessions and Needs on the project page, one Sessions list). Trim with probe.mjs per-collection counts after the merge.
+<!-- work-os-copy sha1:89092c156ddb1ddaffb7da2ce07866668d43a6d6 -->
