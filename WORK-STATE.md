@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 301. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 303. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -16,6 +16,7 @@ Copy of the Work OS state, version 301. WORK-STATE.md is a copy of the State, wr
 8. Method trial (Om, 21 Nov): lead plan + Sonnet build vs Opus builder. Tag each piece of work with its method; on 23 Nov compare usage (usage page) and review findings/rework, report to Om.
 9. Per-project Working plan: the server swaps a project's own '## Working plan' into the Delpat Orders (dev 80aee73, reviewed). Work OS plan note 6f53fca67c waits for Om to mark it as the project's Orders; Grant Leads writes its own and Om marks it. Swap live (330d27c). Om questions whether per-project plans are needed; Grant Leads lead asked replace vs add (m_590d82a004e7). — waits on Om: release yes, mark the notes
 10. Discord v4 live (a3b867a, 21 Nov): listener running on the server, connected, no gateway errors. Waits on Om's steps in note 34a1383581 (portal URLs, Message Content intent, DISCORD_CLIENT_SECRET, wos emoji, Connect Discord, bug channels); then try a real post in #delpat-os. — waits on Om's Discord steps
+11. Next release carries: org Orders under Delpat at the top of Notes (df94585) and a Share button on the note page (merged to dev after review; flow-h9 132/0), plus the save-with-action hook change. — waits on Om's yes to release
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -87,8 +88,8 @@ Copy of the Work OS state, version 301. WORK-STATE.md is a copy of the State, wr
 - Compaction cost measured 21 Nov: about 90K input-equivalent once (192K read + 4.5K summary + 35K cache rebuild); saves about 10K per call after, pays off after about 9 calls. Supports compacting the lead earlier (~150K).
 - Stop hook forces an extra turn after every merge or release just to save State; make the release flow save State itself (working plan draft 2, point 5).
 - Usage metric: subscription limits are % of the 5-hour and weekly windows, weighting not published. Compare work in API-price-weighted input tokens from transcripts (input + 0.1 cache read + 1.25 cache write + 5 output) as a stand-in; check it against get_usage % moves.
-- Notes: org Orders under Delpat at the top of Notes is on dev (df94585, reviewed; flow-h9 120/0, leak-audit 282/0), ships next release. Share control: A (chip showing who reads, follows project) or B (per-note sharing); plus a guard on making Work OS private. — waits on Om picks A or B and the guard
+- Pull to refresh broken in the PWA (Om, 21 Nov): the code (components/mobile/pull-to-refresh.tsx) hasn't changed since 14 Oct; the code read found no cause; a touch test on master (slot S, iPhone and Pixel) is running. — waits on the slot S touch test; Om's phone OS
 
 ## Parked
 - 2 lines in Work OS: list_parked, or the project page.
-<!-- work-os-copy sha1:fb4afd3cd190e009bb662757c3a20580fcfaaab5 -->
+<!-- work-os-copy sha1:dead3a985a371ae4b512863909554fad35a7a848 -->
