@@ -200,8 +200,8 @@ Tools reach every surface and an agent working alone; prompts and skills don't (
 - **Built (Identity, 19 Nov; design in Work OS note 2afd68cb00, Om after a live test: "our ability to watch sessions is half"):**
   - **A message is to a session or a person, not to a project.** `send_message {to, project?}`: `to` is one of your own
     sessions (id or name; another person's session id is refused) or a person you share a project with; the project inbox,
-    the `inbox` tool and the project Inbox tab are gone. A person's messages show on Claude › Now under Messages for you
-    (apply, reject, reply, make a task); `message_status` with no status reads the text.
+    the `inbox` tool and the project Inbox tab are gone. A message to a person goes to their lead session on the project (no personal inbox, 21 Nov);
+    `message_status` with no status reads the text.
   - **Every session is on the roster, with or without a project.** A folder no project owns gives a "No project" row,
     private to its person, with a token that opens only event and wait (hook protocol 3); messages to it, delivery and
     wake work as for any session.

@@ -386,7 +386,7 @@ export type MessageDoc = Placed & {
   _id: string;
   /** Null: a message between two of one person's own sessions, one of which has no project (Identity step 6); it is placed private to that person. */
   projectId: string | null;
-  /** A person the message is for (it shows under Messages for you on their Claude › Now; their sessions do not get it). Needs a project both read. */
+  /** Old rows only (the personal inbox is gone, 21 Nov): nothing reads this to show or deliver. */
   toUser?: string;
   /** Who should act, for display: the addressed session's name (old messages: a label or client name, a hint). Never a raw session id. */
   toSession?: string;
