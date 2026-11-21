@@ -232,8 +232,8 @@ export const WHATS_NEW: readonly WhatsNewEntry[] = [
     id: 'messages-to-sessions',
     date: '2026-11-19',
     title: 'Messages go to sessions and people',
-    line: 'Send a message to one of your sessions or to a teammate; messages for you show under Claude › Now, where you apply, reject or reply. The project Inbox tab is gone.',
-    where: 'Claude › Now, Messages for you',
+    line: 'Send a message to one of your sessions or to a teammate; it goes straight to one session. The project Inbox tab is gone.',
+    where: 'Claude › Sessions, a session row’s Message',
     href: '/claude',
   },
   {

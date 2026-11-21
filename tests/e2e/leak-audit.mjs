@@ -945,13 +945,19 @@ try {
     const tStart = await mcpCall(T.code, 'start_work', { project: nm, machine: 'lkqmvt', label: 'tess' });
     const mm = await mustMcp(A.chat, 'send_message', { to: T.person, project: nm, kind: 'fyi', body: mcn, word: 'person' });
     check('Messages: a message to a teammate goes to her session on the shared project, by its key', JSON.stringify((await rawDb.collection('messages').findOne({ _id: mm.id })).toSids) === JSON.stringify([`${T.userId}:${tStart.json?.session}`]), '');
-    await rawDb.collection('messages').updateOne({ _id: mm.id }, { $set: { toUser: T.userId }, $unset: { toSids: '', toSession: '' } });
+    // mm stays addressed to her session (the placement gate below is proved on it); a second message, turned into the old toUser form, is for the 'read by no one' check
+    const mold = await mustMcp(A.chat, 'send_message', { to: T.person, project: nm, kind: 'fyi', body: `${mcn}old`, word: 'person' });
+    await rawDb.collection('messages').updateOne({ _id: mold.id }, { $set: { toUser: T.userId }, $unset: { toSids: '', toSession: '' } });
+    const tSess = tStart.json?.session;
     check('Messages: word is set by the server, an argument for it is ignored', mm.word === 'agent' && (await rawDb.collection('messages').findOne({ _id: mm.id })).from.word === 'agent', JSON.stringify(mm));
     const tm = await mcpCall(T.code, 'send_message', { to: 'E2E Owner', project: nm, kind: 'fyi', body: 'lkq from T', word: 'person' });
     check('Messages: a teammate can send to a person on a shared project, and their word is agent whatever they pass', tm.ok && JSON.parse(tm.text).word === 'agent', tm.text.slice(0, 200));
-    const tib = await mcpCall(T.chat, 'message_status', { id: mm.id });
+    const tib = await mcpCall(T.code, 'message_status', { id: mm.id, session: tSess });
     scan('T', 'mv message_status read (before)', tib.text);
-    check('Messages: an old toUser row is read by no one through a chat key (no inbox: it is not hers to read as a person)', !tib.ok && /not found/i.test(tib.text) && !tib.text.includes(mcn), tib.text.slice(0, 200));
+    check('Messages: a teammate’s session reads a message sent to it on a shared project', tib.ok && tib.text.includes(mcn), tib.text.slice(0, 200));
+    const tibOld = await mcpCall(T.code, 'message_status', { id: mold.id, session: tSess });
+    scan('T', 'mv message_status old toUser row', tibOld.text);
+    check('Messages: an old toUser row is read by no one (no inbox)', !tibOld.ok && /not found/i.test(tibOld.text) && !tibOld.text.includes(`${mcn}old`), tibOld.text.slice(0, 200));
     const tNowBefore = await req('GET', '/claude?tab=now', { cookie: T.cookie });
     check('Messages: …and it is on no page of hers (the personal inbox is gone, 21 Nov)', tNowBefore.status === 200 && !tNowBefore.text.includes(mcn) && !tNowBefore.text.includes('Messages for you'), String(tNowBefore.status));
     const tNoSession = await mcpCall(T.chat, 'send_message', { to: aSid, kind: 'fyi', body: 'lkq to the owner session' });
@@ -1021,9 +1027,9 @@ try {
     check('State: a before cursor from one project returns nothing of another project', !!curA && !foreignCur.ok && !foreignCur.text.includes(cn), String(curA) + foreignCur.text.slice(0, 150));
     check('State: …and the presence rows (both sessions) with it', pr.length === 2 && pr.every(p => p.visibility === 'private' && p.ownerId === A.userId), JSON.stringify(pr.map(p => [p.visibility, p.ownerId])));
     const mvd = await rawDb.collection('messages').find({ projectId: pid }).toArray();
-    check('Messages: a project made private takes its messages along (placed private, owned by its owner)', mvd.length === 2 && mvd.every(m => m.visibility === 'private' && m.ownerId === A.userId), JSON.stringify(mvd.map(m => [m.visibility, m.ownerId])));
+    check('Messages: a project made private takes its messages along (placed private, owned by its owner)', mvd.length === 3 && mvd.every(m => m.visibility === 'private' && m.ownerId === A.userId), JSON.stringify(mvd.map(m => [m.visibility, m.ownerId])));
     for (const [tool, args] of [['message_status', { id: mm.id }], ['send_message', { to: 'E2E Owner', project: nm, kind: 'fyi', body: 'lkq after private' }], ['message_status', { id: mm.id, status: 'seen' }], ['reply', { id: mm.id, body: 'lkq after private' }]]) {
-      const r = await mcpCall(T.chat, tool, args);
+      const r = await mcpCall(T.code, tool, { ...args, session: tSess });
       scan('T', `mv ${tool} (after private)`, r.text);
       check(`Messages: after the project was made private the teammate is refused (${tool})`, !r.ok && /not found/i.test(r.text) && !r.text.includes(mcn), r.text.slice(0, 200));
     }

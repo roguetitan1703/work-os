@@ -24,16 +24,20 @@ if (!uri) die('MONGODB_URI is not set.');
 const host = u => u.replace(/\/\/[^@]*@/, '//<credentials>@').replace(/\?.*$/, '');
 
 const NOTE = 'inbox removed 21 Nov';
+const DONE = /inbox removed 21 Nov$/; // a row we closed before (note is ours or ends with ours)
 const client = new MongoClient(uri);
 await client.connect();
 try {
   const messages = client.db(source).collection('messages');
-  const filter = { toUser: { $exists: true, $ne: null }, status: { $in: ['unread', 'seen'] }, note: { $ne: NOTE } };
+  const filter = { toUser: { $exists: true, $ne: null }, status: { $in: ['unread', 'seen'] }, note: { $not: DONE } };
   const rows = await messages.find(filter, { projection: { _id: 1 } }).toArray();
   console.log(`${APPLY ? 'APPLY' : 'DRY RUN'} on ${host(uri)} / ${source}: ${rows.length} inbox message(s) open`);
   if (rows.length) console.log(`ids: ${rows.map(r => r._id).join(', ')}`);
   if (APPLY && rows.length) {
-    const r = await messages.updateMany({ _id: { $in: rows.map(x => x._id) } }, { $set: { status: 'seen', note: NOTE, closedAt: new Date() } });
+    // The full filter again (a row that changed meanwhile is skipped); an existing note is kept, ours is added after it.
+    const r = await messages.updateMany({ _id: { $in: rows.map(x => x._id) }, status: { $in: ['unread', 'seen'] }, note: { $not: DONE } }, [
+      { $set: { status: 'seen', closedAt: new Date(), note: { $cond: [{ $gt: [{ $strLenCP: { $ifNull: ['$note', ''] } }, 0] }, { $concat: ['$note', ' | ', NOTE] }, NOTE] } } },
+    ]);
     console.log(`closed ${r.modifiedCount}`);
   } else if (!APPLY) console.log('Nothing changed. Add --apply to close them.');
 } finally {

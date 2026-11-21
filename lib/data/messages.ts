@@ -9,7 +9,7 @@ import { followMoved, isChatRow } from './pickup';
 import { signalSessions } from '../live';
 import { forUser, scoped, type Scope } from '../scope';
 import { memberNames } from '../people';
-import { agentActor, isPerson, userActor, type Actor } from '../actors';
+import { agentActor, userActor, type Actor } from '../actors';
 import { InputError, NotFoundError } from './errors';
 import { placeIn, resolveProject } from './projects';
 import { saveState } from './states';
@@ -596,9 +596,9 @@ const viaOf = (w: Word) => (w === 'person' ? 'app' : w === 'chat' ? 'chat' : 'co
 
 /**
  * Sets a message's status. `applied` on a decision adds it to the State's Decisions (with the message id); `makeTask` turns a
- * request into a task. A person in the app may apply or reject anything they can read. An agent (MCP) may apply a decision
- * only when it is its own person's word (person or chat); a decision that came from an agent, or from someone else, is applied
- * in the app.
+ * request into a task. Only MCP calls this (the app has no inbox): the sender or the session it is addressed to closes it, and an agent
+ * applies a decision or makes a task only when it is its own person's word (person or chat). Anything else goes to the State or
+ * the task list through the person: add_decision or create_task after they say yes in chat.
  */
 export function setStatus(
   s: Scope,
@@ -620,37 +620,31 @@ async function setStatusIn(
   const m = await c.messages.findOne({ _id: String(id).slice(0, 40) });
   if (!m) throw new NotFoundError(`Message ${String(id).slice(0, 40)} not found`);
   if (m.status === 'applied' || m.status === 'rejected') throw new InputError(`This message is already ${m.status}.`);
-  const person = isPerson(o.actor);
   const mine = m.from.userId === s.userId;
-  // A person in the app acts on what is theirs: sent by them, addressed to them, or to one of their own sessions. A message between a teammate's sessions
-  // (placed on a project they read) is not theirs to close. Old messages with no addressee at all stay the project's.
-  if (person && !mine && !(m.toSids ?? []).some(k => k.startsWith(`${s.userId}:`)) && (m.toSids?.length || m.toSession)) {
-    throw new NotFoundError(`Message ${String(id).slice(0, 40)} not found`);
-  }
   const owner = m.projectId ? (await c.projects.findOne({ _id: m.projectId }, { projection: { ownerId: 1 } }))?.ownerId : undefined;
   const reader: Reader = o.reader ?? { key: s.userId, userId: s.userId, row: null };
-  const toMe = !person && addressed(m, reader, owner);
+  const toMe = addressed(m, reader, owner);
   const markRead = async () => {
     // Seen through MCP is read by this session only (not by the session that sent it).
     if (toMe && !(m.src && keysOf(reader).includes(m.src))) await c.messages.updateOne({ _id: m._id, seenBy: { $exists: true, $nin: [reader.key] } } as never, { $push: { seenBy: { $each: [reader.key], $slice: -50 } } } as never);
   };
   if (status === 'seen' && m.status === 'seen') {
     // The same gate as below, before anything is handed back: someone who is neither side gets what a missing id gets.
-    if (!person && !mine && !toMe) throw new NotFoundError(`Message ${String(id).slice(0, 40)} not found`);
+    if (!mine && !toMe) throw new NotFoundError(`Message ${String(id).slice(0, 40)} not found`);
     await markRead();
     return { message: m };
   }
-  // Through MCP only the sender, the one it is addressed to, or (in the app) a person closes a message: a reader of the project cannot close another member's.
-  if (!person && !mine && !toMe) throw new InputError('Only the message’s sender, the session it is addressed to, or a person in the app can change its status.');
+  // Only the sender or the one it is addressed to closes a message: a reader of the project cannot close another member's.
+  if (!mine && !toMe) throw new InputError('Only the message’s sender or the session it is addressed to can change its status.');
   if (o.makeTask) {
     if (m.kind !== 'request') throw new InputError('Only a request becomes a task.');
     if (!m.projectId) throw new InputError('This message has no project, so it cannot become a task.');
-    // Same gate as applying a decision: an agent’s (or someone else’s) request becomes a task in the app.
-    if (!person && !(mine && m.from.word !== 'agent')) throw new InputError('A request becomes a task by a person in the app, or through MCP only when it is your own person’s word (sent from the app or Claude chat). Ask your person to do it in Work OS.');
+    // Same gate as applying a decision: an agent’s (or someone else’s) request becomes a task through the person.
+    if (!(mine && m.from.word !== 'agent')) throw new InputError('A request becomes a task here only when it is your own person’s word (sent from the app or Claude chat). Otherwise ask your person; after they say yes in chat, create the task with create_task.');
     status = 'applied';
   }
-  if (status === 'applied' && m.kind === 'decision' && !person && !(m.from.userId === s.userId && m.from.word !== 'agent')) {
-    throw new InputError('A decision is applied by a person in the app, or by an agent only when it is its own person’s word (sent from the app or Claude chat). Ask your person to apply it in Work OS.');
+  if (status === 'applied' && m.kind === 'decision' && !(m.from.userId === s.userId && m.from.word !== 'agent')) {
+    throw new InputError('A decision is applied here only when it is your own person’s word (sent from the app or Claude chat). Otherwise ask your person; after they say yes in chat, save it with save_state add_decision.');
   }
   // A message between two of one person's sessions, one with no project, has no State to add a decision to and no project for a task.
   if (!m.projectId && (status === 'applied' && m.kind === 'decision')) throw new InputError('This message has no project, so there is no State to add it to.');

@@ -210,7 +210,7 @@ try {
   check('7: Om’s idle lead is woken by Tess’s decision, framed as information from Tess', lw.json?.wake === true && /Tess decided the queue/.test(lw.json.text ?? '') && /Information from Tess/.test(lw.json.text), lw.text.slice(0, 300));
   await ack(L.token, lw.json?.ack);
   const apply = await mcpH(kA, 'message_status', { id: tp.id, status: 'applied', session: L.sid });
-  check('7: Om’s lead cannot apply Tess’s decision (a person does it in the app)', apply.isError && /applied by a person in the app/.test(apply.text), apply.text.slice(0, 200));
+  check('7: Om’s lead cannot apply Tess’s decision (it goes to the State through the person)', apply.isError && /save_state add_decision/.test(apply.text), apply.text.slice(0, 200));
   const lr = await must(kA, 'reply', { id: tp.id, body: 'ms6: noted, Om will look', session: L.sid });
   check('7: Om’s lead’s reply goes back to Tess’s session', JSON.stringify((await msg(lr.id)).toSids) === JSON.stringify([`${T.userId}:${TL.sid}`]), JSON.stringify((await msg(lr.id)).toSids));
   const tls = await must(kT, 'list_sessions', { project: NAME });
