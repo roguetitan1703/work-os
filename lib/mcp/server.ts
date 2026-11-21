@@ -35,7 +35,7 @@ import { ACTIVITY_WHAT } from '../types';
 import * as stateData from '../data/states';
 import * as messageData from '../data/messages';
 import * as ordersData from '../data/orders';
-import { ordersChangesFor, ordersFor, ordersWrittenBy, shortFormForSubagent } from '../data/orders';
+import { ordersChangesFor, ordersFor, ordersServed, ordersWrittenBy, shortFormForSubagent } from '../data/orders';
 import { cleanLabel, endPresence, namesOtherSession, rowKey, setOrdersSeen, othersPresent, presentRow, readerRow, registerPresence, resolveMachine, rowFor, sessionKey, setDoing, type Ident } from '../data/presence';
 import { presenceState } from '../data/presence-state';
 import { laneOut, type LaneOut } from '../data/lanes';
@@ -540,7 +540,7 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
   const hv = picked ? { shown: [picked.brief], more: [] as { id: string; title: string }[] } : pickRefused.text ? { shown: [] as handovers.BriefHandover[], more: [] as { id: string; title: string }[] } : await handovers.handoversForBrief(s, project._id, { me: row.key, label: row.label, fresh: row.fresh, parent: row.parent, actor: agentActor(caller.agent, caller.userId) });
   // 1. Orders: organization, project, person. Project Orders someone else wrote are information, not rules.
   const layerName = { org: 'org', project: 'project', person: 'person' } as const;
-  const served = await ordersFor(s, project);
+  const served = await ordersServed(s, project);
   // `change`: the tool that changes this layer for the caller (the holder writes the page, anyone else files a proposal). A dispatched
   // run changes none (its task text can come from a teammate): it names the change in its report to the person instead.
   const orders = (await Promise.all(served.map(async o => ({ o, edit: await ordersData.canEditOrders(s, { orders: o.layer, ownerId: o.ownerId, projectId: o.layer === 'project' ? project._id : null }) })))).map(({ o, edit }) => ({ change: (dispatched ? 'none' : edit ? 'write_note' : 'propose_order') as 'write_note' | 'propose_order' | 'none',
@@ -551,6 +551,7 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
     ...(ordersWrittenBy(o, names, label) ? { writtenBy: ordersWrittenBy(o, names, label) } : {}),
     text: o.text,
     noteId: o.noteId,
+    ...(o.planFrom ? { workingPlan: `this project's own, from its Orders note ${o.planFrom} (change it there with write_note); changes to the organization's default Working plan do not apply to this project` } : {}),
     ...(o.truncated ? { truncated: 'read the note for the rest' } : {}),
   }));
   // What changed in the Orders in the last 48 hours (at most 5, cut to 1,200 characters): who, when, why, the lines out and in.

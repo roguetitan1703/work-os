@@ -24,17 +24,17 @@ export function ContextWarnSetting({ projectId, initial }: { projectId: string; 
 
   return (
     <div className="space-y-1.5" data-part="context-warn">
-      <h3 className="text-[13px] md:text-xs font-semibold text-foreground px-1 md:px-0">Context warning</h3>
-      <p className="text-[13px] md:text-xs text-muted-foreground px-1 md:px-0">Claude is told to write a code-map note and stop when its context grows past this size.</p>
+      <h3 className="text-meta md:text-xs font-semibold text-foreground px-1 md:px-0">Context warning</h3>
+      <p className="text-meta md:text-xs text-muted-foreground px-1 md:px-0">Claude is told to write a code-map note and stop when its context grows past this size.</p>
       <div className="rounded-2xl md:rounded-lg border border-border/70 md:border-border bg-card overflow-hidden">
         <div className="flex items-center gap-2 pl-4 md:pl-3 pr-1 py-1.5 min-h-14 md:min-h-11" data-context-warn-row>
           <Gauge className="w-4 h-4 md:w-3.5 md:h-3.5 text-muted-foreground shrink-0" />
           <div className="flex-1 min-w-0">
-            <div className="text-[15px] md:text-sm break-words" data-context-warn-summary>{line ? `At ${line}k` : 'Off'}</div>
-            <div className="text-[13px] md:text-xs text-muted-foreground truncate">{line ? 'Claude is warned, then told to stop' : 'Claude is left alone'}</div>
+            <div className="text-body md:text-sm break-words" data-context-warn-summary>{line ? `At ${line}k` : 'Off'}</div>
+            <div className="text-meta md:text-xs text-muted-foreground truncate">{line ? 'Claude is warned, then told to stop' : 'Claude is left alone'}</div>
           </div>
           <Select
-            className="h-11 md:h-8 w-24 shrink-0 rounded-full border-transparent bg-transparent dark:bg-transparent px-3 text-[13px] font-medium text-muted-foreground"
+            className="h-11 md:h-8 w-24 shrink-0 rounded-full border-transparent bg-transparent dark:bg-transparent px-3 text-meta font-medium text-muted-foreground"
             value={line ? String(line) : ''}
             onChange={e => pick(e.target.value)}
             disabled={pending}

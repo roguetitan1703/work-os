@@ -16,7 +16,8 @@
     "check:lanes": "node --experimental-strip-types --no-warnings tests/lanes-check.mjs",
     "check:declutter": "node --experimental-strip-types --no-warnings tests/declutter-check.mjs",
     "check:claude-items-migrate": "node --experimental-strip-types --no-warnings tests/claude-items-migrate-check.mjs",
-    "check:state-lists-move": "node --experimental-strip-types --no-warnings tests/state-lists-move-check.mjs"
+    "check:state-lists-move": "node --experimental-strip-types --no-warnings tests/state-lists-move-check.mjs",
+    "check:orders-plan": "node --experimental-strip-types --no-warnings tests/orders-plan-check.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
