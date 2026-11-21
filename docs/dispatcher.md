@@ -237,7 +237,7 @@ Claude items others filed.
   for something.
 - **Authors are stored with the text** (`lib/data/tasks.ts`, every write path: the app, MCP, apply_changes, Discord,
   bulk create): `titleBy`, `descriptionBy`, `blockedReasonBy`, `tagsBy`, and `by` on each checklist item and link; a
-  project keeps `nameBy`. A task made from a Discord message (`discord_message_to_task`, the bot's "Make task") gets the
+  project keeps `nameBy`. A task made from a Discord message (the bot's bug-channel and track-emoji tasks) gets the
   message author (`{ kind: 'discord-author', name }`) on its title and description until a member edits them (a title
   the member typed is theirs). A recurring task's next copy keeps the original's authors.
 - **Older tasks** (no stored author): the newest history entry that set that exact field, or added that exact

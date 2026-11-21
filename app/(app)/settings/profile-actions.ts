@@ -6,8 +6,7 @@ import { asCaller } from '@/lib/caller';
 import { isOperator } from '@/lib/operator';
 import { InputError } from '@/lib/data/errors';
 import { DiscordError, setOrgGuildId } from '@/lib/discord/client';
-import { setTeamChannelId } from '@/lib/team-digest';
-import { saveTimeSettings, startDiscordLink, unlinkDiscord } from '@/lib/profile';
+import { hideDiscordCard, saveTimeSettings, unlinkDiscord } from '@/lib/profile';
 
 // Each person's own settings (lib/profile.ts): timezone, quiet hours, their Discord link. Plus the organization's
 // Discord server, which only the operator sets (one organization per server).
@@ -31,20 +30,9 @@ export async function saveTimeSettingsAction(input: { timezone: string; quietSta
   return run('time settings', () => asCaller(async c => void (await saveTimeSettings(c, input))).then(() => null));
 }
 
-/** The owner or the operator sets the Discord channel for the team digest ('' turns it off). */
-export async function saveTeamChannelAction(channelId: string): Promise<R<null>> {
-  return run('team channel', () =>
-    asCaller(async c => {
-      if (!isOperator(c) && c.role !== 'owner') throw new SafeError('Only an owner or the operator can set the team digest channel.');
-      await setTeamChannelId(c.orgId, channelId.trim() || null);
-      return null;
-    }),
-  );
-}
-
-/** A one-time code to run as /link <code> on the organization's Discord server (10 minutes). */
-export async function discordLinkCodeAction(): Promise<R<{ code: string; expiresAt: string }>> {
-  return run('discord link code', () => asCaller(async c => startDiscordLink(c)).then(r => ({ code: r.code, expiresAt: r.expiresAt.toISOString() })));
+/** Hides the Connect Discord card on Today for this person (it stays in Settings › Notifications). */
+export async function hideDiscordCardAction(): Promise<R<null>> {
+  return run('discord card', () => asCaller(async c => hideDiscordCard(c)).then(() => null));
 }
 
 export async function unlinkDiscordAction(): Promise<R<null>> {

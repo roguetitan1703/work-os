@@ -14,6 +14,7 @@ import { asksBySession, withAskerSessions } from '@/lib/data/need-sessions';
 import { roster } from '@/lib/data/roster';
 import { FILTER_COOKIE, mergeSessions, parseFilter } from '@/lib/session-item';
 import { cookies } from 'next/headers';
+import { showConnectCard } from '@/lib/discord/connect';
 import { whatsNewState } from '@/lib/whats-new-seen';
 import type { WhatsNewCardData } from './whats-new-card';
 import { projectsNow } from '@/lib/data/today-projects';
@@ -40,13 +41,14 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
     roster(s, { lite: true, results: true }).catch(() => null),
     openP.then(o => getChecklist(me, { skipIfHidden: true, hasOpenTask: o.length > 0 })).catch(() => null),
   ]);
-  const [waiting, notes, needs, news] = await Promise.all([
+  const [waiting, notes, needs, news, discordCard] = await Promise.all([
     unmetDependencies(s, open),
     taskIdsWithNotes(s, open.map(t => t.id)),
     openNeedsToMe(s)
       .then(l => withAskerSessions(s, l))
       .catch(() => []),
     whatsNewState(me).catch(() => null),
+    showConnectCard(s).catch(() => false),
   ]);
   // One States read for the task chips and the Projects card: every project of an open task or a Need to me.
   const stateIds = [...new Set([...open.map(t => t.projectId), ...needs.map(n => n.projectId)].filter((x): x is string => !!x))];
@@ -78,6 +80,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
       projectRows={projectRows}
       checklist={checklist}
       whatsNew={whatsNew}
+      discordCard={discordCard}
       welcome={sp.welcome ? `Welcome, ${(me.name || me.email).split(/[ @]/)[0]}.` : null}
     />
     </PlacesProvider>

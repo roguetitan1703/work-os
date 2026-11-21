@@ -19,9 +19,7 @@
 #                                                            the copy stays for you to drop), then --apply
 #   4. schedule, modes, timezone, Discord ids as data       scripts/migrate-phase3.mjs (reads DISCORD_GUILD_ID and
 #                                                            DISCORD_OWNER_ID one last time)
-#   5. Discord commands registered again (they gain /link)  scripts/discord-register.mjs; needs the app running
-#                                                            (--service starts it first); skipped when Discord is
-#                                                            not configured
+#   5. Discord commands: none any more (kept so step numbers do not change)
 #   6. DISCORD_GUILD_ID and DISCORD_OWNER_ID removed from --env-file (a copy is kept next to it)
 #
 # Options:
@@ -192,20 +190,7 @@ start_app() {
 
 if want 5; then
   CURRENT="5. Discord commands"; step "$CURRENT"
-  if [ -z "${DISCORD_BOT_TOKEN:-}" ] || [ -z "${DISCORD_APPLICATION_ID:-}" ] || [ -z "${DISCORD_PUBLIC_KEY:-}" ]; then
-    echo "  · Discord is not configured: skipped"
-  else
-    [ "$APPLY" = 1 ] && start_app
-    ok=0
-    if [ "$APPLY" = 1 ]; then wait_live && ok=1; else live && ok=1; fi
-    if [ "$ok" = 1 ]; then
-      node_step scripts/discord-register.mjs --db "$DB" --base "$BASE" "${APPLY_FLAG[@]}"
-    elif [ "$APPLY" = 1 ]; then
-      fail "$CURRENT (the app does not answer at $BASE/api/live)"
-    else
-      echo "  - the app is not running at $BASE: with --apply it registers once the app is up"
-    fi
-  fi
+  echo "  · Work OS has no Discord commands any more: nothing to register"
 fi
 
 if want 6; then

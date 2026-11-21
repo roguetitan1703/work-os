@@ -3,67 +3,50 @@
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
-import { CopyBox } from '@/components/copy-box';
-import { discordLinkCodeAction, saveDiscordServerAction, saveTeamChannelAction, unlinkDiscordAction } from './profile-actions';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { saveDiscordServerAction, unlinkDiscordAction } from './profile-actions';
 
-const btn = 'h-11 md:h-9 px-4 rounded-full text-sm font-semibold border border-border disabled:opacity-50';
-
-/** Link your own Discord account: make a code here, run /link <code> on the server (the signed command proves the account). */
-export function DiscordLink({ linked, serverReady }: { linked: boolean; serverReady: boolean }) {
+/**
+ * Connect your own Discord account: one button that signs you in at Discord (lib/discord/connect.ts), no code to copy. Connected: a line
+ * and Unlink. `ready` is false while the operator has not set the client secret.
+ */
+export function DiscordLink({ linked, ready }: { linked: boolean; ready: boolean }) {
   const router = useRouter();
   const [pending, start] = useTransition();
-  const [code, setCode] = useState<{ code: string; expiresAt: string } | null>(null);
 
   if (linked) {
     return (
       <div className="flex flex-wrap items-center gap-3" data-discord-linked>
-        <p className="text-sm">Your Discord account is linked. Commands on the server act as you, and alert DMs come to you.</p>
-        <button
-          type="button"
-          className={btn}
+        <p className="text-body md:text-meta">Your Discord account is connected. What you mark or press there is yours, and reel and day-old Need DMs come to you.</p>
+        <Button
+          variant="outline"
+          size="touch"
           disabled={pending}
           data-discord-unlink
           onClick={() =>
             start(async () => {
               const r = await unlinkDiscordAction();
               if (!r.ok) return void toast.error(r.error);
-              setCode(null);
               router.refresh();
             })
           }
         >
           Unlink
-        </button>
+        </Button>
       </div>
     );
   }
   return (
-    <div className="space-y-3" data-discord-unlinked>
-      <p className="text-sm">
-        Your Discord account is not linked. Make a code, then run the command below on the organization&apos;s Discord server. Until then commands there say
-        &ldquo;not linked&rdquo; and alerts don&apos;t go to Discord.
-      </p>
-      {code ? (
-        <div className="space-y-1">
-          <CopyBox text={`/link ${code.code}`} />
-          <p className="text-xs text-muted-foreground">Works once, until {new Date(code.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.</p>
-        </div>
+    <div className="flex flex-wrap items-center gap-3" data-discord-unlinked>
+      <p className="text-body md:text-meta">Connect your Discord account so posts you mark with the track emoji and the buttons under the bot&apos;s replies are yours, and so reel and day-old Need DMs can reach you.</p>
+      {ready ? (
+        <a href="/api/discord/connect" className={buttonVariants({ size: 'touch' })} data-discord-connect>
+          Connect Discord
+        </a>
       ) : (
-        <button
-          type="button"
-          className={btn}
-          disabled={pending || !serverReady}
-          data-discord-link-code
-          onClick={() =>
-            start(async () => {
-              const r = await discordLinkCodeAction();
-              if (!r.ok) return void toast.error(r.error);
-              setCode(r.data);
-            })
-          }
-        >
-          Make a link code
-        </button>
+        <p className="text-meta text-muted-foreground" data-discord-not-ready>
+          Connecting is not set up yet: the operator of this Work OS adds the Discord client secret.
+        </p>
       )}
     </div>
   );
@@ -94,45 +77,11 @@ export function DiscordServerForm({ guildId }: { guildId: string | null }) {
         inputMode="numeric"
         placeholder="Server ID"
         aria-label="Discord server ID"
-        className="h-11 md:h-9 w-56 rounded-md border border-border bg-background px-3 text-sm"
+        className="h-11 md:h-9 w-56 rounded-md border border-border bg-background px-3 text-body md:text-meta"
       />
-      <button type="submit" className={btn} disabled={pending || value.trim() === (guildId ?? '')}>
+      <Button type="submit" variant="outline" size="touch" disabled={pending || value.trim() === (guildId ?? '')}>
         Save
-      </button>
-    </form>
-  );
-}
-
-/** The Discord channel that gets the team digest each morning (empty: no team digest). Owner or operator. */
-export function TeamChannelForm({ channelId }: { channelId: string | null }) {
-  const router = useRouter();
-  const [pending, start] = useTransition();
-  const [value, setValue] = useState(channelId ?? '');
-  return (
-    <form
-      className="flex flex-wrap items-center gap-2"
-      data-team-channel
-      onSubmit={e => {
-        e.preventDefault();
-        start(async () => {
-          const r = await saveTeamChannelAction(value);
-          if (!r.ok) return void toast.error(r.error);
-          toast.success(value.trim() ? 'Team digest channel saved' : 'Team digest turned off');
-          router.refresh();
-        });
-      }}
-    >
-      <input
-        value={value}
-        onChange={e => setValue(e.target.value)}
-        inputMode="numeric"
-        placeholder="Channel ID"
-        aria-label="Discord channel ID for the team digest"
-        className="h-11 md:h-9 w-56 rounded-md border border-border bg-background px-3 text-sm"
-      />
-      <button type="submit" className={btn} disabled={pending || value.trim() === (channelId ?? '')}>
-        Save
-      </button>
+      </Button>
     </form>
   );
 }

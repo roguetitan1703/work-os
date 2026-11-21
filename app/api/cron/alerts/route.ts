@@ -6,7 +6,6 @@ import { pruneInbox } from '@/lib/notify';
 import { allMemberships } from '@/lib/people';
 import { timezoneOf } from '@/lib/profile';
 import { parseCronAt } from '@/lib/cron-at';
-import { runTeamDigest } from '@/lib/team-digest';
 import { runWithRequestContext } from '@/lib/request-context';
 
 // Alert check, called every 15 minutes by the server's work-os-alerts.timer (deploy/cron-alerts.sh; was cron-job.org).
@@ -67,8 +66,6 @@ async function handle(req: Request) {
     if (r.error) errors.push(r.error);
     if (!r.dryRun && !at) await recordRun(s, r.error ? `error: ${r.error}` : r.quiet ? 'quiet hours' : r.items.length ? `sent ${r.items.length} alerts` : 'nothing due');
   }
-  // One team digest per organization (its Discord channel, if the owner set one).
-  if (!dry) for (const orgId of new Set(memberships.map(m => m.orgId))) await runTeamDigest(orgId, { now: at });
   if (!dry && new Date().getUTCHours() === 3 && new Date().getUTCMinutes() < 15) await Promise.all([pruneAlertLog(), pruneInbox()]);
   const error = errors.length ? errors.join('; ') : undefined;
   return NextResponse.json(

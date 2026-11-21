@@ -38,7 +38,7 @@ import { UsageSection } from './usage-section';
 
 export const metadata = { title: 'Settings · Work OS' };
 
-type Props = { searchParams: Promise<{ section?: string; open?: string; range?: string }> };
+type Props = { searchParams: Promise<{ section?: string; open?: string; range?: string; discord?: string }> };
 
 /** Who sees Server: the operator (everything on it), and an owner or admin (the Discord channels they already manage). */
 function canSeeServer(c: Caller) {
@@ -78,7 +78,7 @@ export default async function SettingsPage({ searchParams }: Props) {
 
   const body: Record<SectionId, () => React.ReactNode> = {
     account: () => <AccountPanel caller={caller} />,
-    notifications: () => <NotificationsPanel caller={caller} />,
+    notifications: () => <NotificationsPanel caller={caller} discord={sp.discord} />,
     connections: () => <ConnectionsPanel caller={caller} />,
     'ai-tools': () => <AiTools />,
     started: () => <StartedPanel caller={caller} />,
@@ -146,7 +146,7 @@ async function AccountPanel({ caller }: { caller: Caller }) {
 }
 
 /** One page for everything that reaches you: this phone, what you are told about, quiet hours, the Discord link. */
-async function NotificationsPanel({ caller }: { caller: Caller }) {
+async function NotificationsPanel({ caller, discord }: { caller: Caller; discord?: string }) {
   const [prefs, devices] = await Promise.all([getNotifySettings(caller), pushDeviceCount(caller).catch(() => 0)]);
   return (
     <div className="space-y-5">
@@ -162,7 +162,7 @@ async function NotificationsPanel({ caller }: { caller: Caller }) {
       </Group>
       <div id="discord" className="scroll-mt-6" data-notifications-discord>
         <Group title="Discord">
-          <DiscordLinkPanel caller={caller} />
+          <DiscordLinkPanel caller={caller} result={discord} />
         </Group>
       </div>
     </div>

@@ -2,6 +2,8 @@ import 'server-only';
 import { currentTz, previousWorkdayStart } from '../dates';
 import { InputError, NotFoundError } from '../data/errors';
 import {
+  API_BASE,
+  authorName,
   CONTENT_INTENT_WARNING,
   DiscordError,
   budget,
@@ -10,6 +12,7 @@ import {
   fetchMessages,
   findChannel,
   guildContext,
+  jumpLink,
   type DiscordLink,
   looksContentless,
   mapWithBudget,
@@ -17,7 +20,6 @@ import {
   mentionsMe,
   ownerInThread,
   parseMessageLink,
-  snowflakeTime,
   toView,
   type ChannelInfo,
   type GuildContext,
@@ -26,9 +28,8 @@ import {
   assertNotBlocked,
   renderContent,
 } from './client';
-import { taskFromMessage, type MessageTaskOverrides, type MessageTaskResult } from './to-task';
-import type { Actor } from '../types';
-import type { Scope } from '../scope';
+import { memberNames } from '../people';
+import { discordUser } from '../profile';
 
 // Read-only views of the Discord server for the MCP tools, as one person sees it (link: lib/profile.ts discordLinkOf). Many channels are handled by
 // activity filtering: last_message_id (a snowflake) says when each channel/thread last moved,
@@ -75,6 +76,8 @@ export async function readMessages(link: DiscordLink, q: {
   after?: string;
   around?: string;
   limit?: number;
+  /** true: the full shape (jump links, mentions, thread info) instead of compact rows. */
+  links?: boolean;
 }) {
   const ctx = await guildContext(link);
   const ch = findChannel(ctx, q.channel);
@@ -99,13 +102,47 @@ export async function readMessages(link: DiscordLink, q: {
     msgs = msgs.slice(-limit);
     truncated = true;
   }
+  const channel = ch ? { name: where(ch), id: ch.id, type: ch.type, url: ch.url } : { id: channelId };
+  const warning = !ctx.contentIntent || looksContentless(ctx, msgs) ? { warning: CONTENT_INTENT_WARNING } : {};
+  if (q.links) {
+    // The full shape: jump links, mentions, thread info and embeds on every message.
+    return { channel, count: msgs.length, ...(truncated ? { truncated: true, note: 'More messages exist; narrow with since/before/after.' } : {}), messages: msgs.map(m => toView(ctx, m)), ...warning };
+  }
+  // The compact shape: one small row per message; the channel link is said once, here.
+  const names = await linkedNames(link, msgs);
+  const tz = currentTz();
+  const at = (iso: string) => new Intl.DateTimeFormat('sv-SE', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
   return {
-    channel: ch ? { name: where(ch), id: ch.id, type: ch.type, url: ch.url } : { id: channelId },
+    channel,
+    timezone: tz,
     count: msgs.length,
     ...(truncated ? { truncated: true, note: 'More messages exist; narrow with since/before/after.' } : {}),
-    messages: msgs.map(m => toView(ctx, m)),
-    ...(!ctx.contentIntent || looksContentless(ctx, msgs) ? { warning: CONTENT_INTENT_WARNING } : {}),
+    messages: msgs.map(m => ({
+      id: m.id,
+      author: names.get(m.author.id) ?? authorName(m),
+      ...(m.author.bot ? { bot: true } : {}),
+      at: at(m.timestamp),
+      text: renderContent(ctx, m),
+      ...(m.message_reference?.message_id
+        ? { replyTo: m.referenced_message ? `${m.message_reference.message_id} ${JSON.stringify(excerpt(renderContent(ctx, m.referenced_message), 60))}` : m.message_reference.message_id }
+        : {}),
+      ...(m.attachments.length ? { attachments: m.attachments.map((x, n) => `[${n + 1}] ${x.filename}`) } : {}),
+    })),
+    ...warning,
   };
+}
+
+/** The Work OS name of each Discord author whose account is linked to a person here (others keep their Discord name). */
+async function linkedNames(link: DiscordLink, msgs: RawMessage[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const ids = [...new Set(msgs.filter(m => !m.author.bot).map(m => m.author.id))].slice(0, 60);
+  if (!ids.length) return out;
+  const names = await memberNames(link.orgId);
+  for (const id of ids) {
+    const p = await discordUser(link.guildId, id).catch(() => null);
+    if (p && names[p.userId]) out.set(id, names[p.userId]);
+  }
+  return out;
 }
 
 // ── discord_needs_attention ─────────────────────────────────────────────────
@@ -243,15 +280,30 @@ export async function needsAttention(link: DiscordLink, opts: { since?: Date; ma
   };
 }
 
-// ── discord_message_to_task ─────────────────────────────────────────────────
+// ── discord_attachment ──────────────────────────────────────────────────────
 
-export async function messageToTask(
-  s: Scope,
-  link: DiscordLink,
-  ref: { link?: string; channel?: string; messageId?: string },
-  overrides: MessageTaskOverrides,
-  actor: Actor,
-): Promise<MessageTaskResult & { message: { url: string; author: string; at: string } }> {
+export const ATTACHMENT_MAX = 4_000_000;
+const ATTACHMENT_TYPES = /^(image\/(png|jpe?g|gif|webp)|application\/pdf)$/i;
+const typeByName = (name: string): string | null => {
+  const ext = name.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1];
+  return ext === 'pdf' ? 'application/pdf' : ext === 'png' ? 'image/png' : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : null;
+};
+/** Where a Discord file may be fetched from: its own CDN (and, in tests only, the fake API's host). */
+function cdnAllowed(url: string): boolean {
+  try {
+    const u = new URL(url);
+    if (u.protocol === 'https:' && (u.hostname === 'cdn.discordapp.com' || u.hostname === 'media.discordapp.net')) return true;
+    return u.origin === new URL(API_BASE).origin && API_BASE !== 'https://discord.com/api/v10';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * One file of a message (a screenshot or a PDF), as the person's own Discord account may see it: base64 in the answer, like mail_attachment.
+ * index is the number shown in brackets in discord_read_messages ([1] is the first). Images and PDFs only, up to 4 MB. The file is untrusted.
+ */
+export async function attachment(link: DiscordLink, ref: { link?: string; channel?: string; messageId?: string }, index: number) {
   const ctx = await guildContext(link);
   let channelId: string | undefined;
   let messageId = ref.messageId;
@@ -272,7 +324,25 @@ export async function messageToTask(
     if (e instanceof DiscordError && (e.status === 403 || e.status === 404)) throw new NotFoundError(`Message not found or not readable (${e.status}).`);
     throw e;
   }
-  const res = await taskFromMessage(s, m, { guildId: ctx.guildId, channel: findChannel(ctx, channelId) }, actor, overrides);
-  const v = toView(ctx, m);
-  return { ...res, message: { url: v.url, author: v.author, at: snowflakeTime(m.id).toISOString() } };
+  if (!m.attachments.length) throw new InputError('That message has no files.');
+  const a = m.attachments[index - 1];
+  if (!Number.isInteger(index) || index < 1 || !a) throw new InputError(`That message has ${m.attachments.length} file(s): index is 1 to ${m.attachments.length}.`);
+  const type = (a.content_type || '').split(';')[0].trim() || typeByName(a.filename) || '';
+  if (!ATTACHMENT_TYPES.test(type)) throw new InputError(`Only screenshots and PDFs can be read here; "${excerpt(a.filename, 60)}" is ${type || 'an unknown type'}.`);
+  if (a.size > ATTACHMENT_MAX) throw new InputError(`"${excerpt(a.filename, 60)}" is ${(a.size / 1_000_000).toFixed(1)} MB, too big to read here (limit 4 MB). Open it in Discord.`);
+  if (!cdnAllowed(a.url)) throw new InputError('That file is not on Discord\u2019s own file host, so it is not fetched.');
+  const res = await fetch(a.url, { cache: 'no-store', signal: AbortSignal.timeout(20_000), redirect: 'error' }).catch(() => null);
+  if (!res?.ok) throw new InputError('Discord did not give the file (it may have been deleted).');
+  const bytes = Buffer.from(await res.arrayBuffer());
+  if (bytes.length > ATTACHMENT_MAX) throw new InputError('The file is larger than 4 MB, too big to read here.');
+  return {
+    untrusted: true,
+    source: 'external Discord message',
+    message: jumpLink(ctx.guildId, channelId, messageId),
+    index,
+    filename: a.filename,
+    content_type: type,
+    size: bytes.length,
+    content_base64: bytes.toString('base64'),
+  };
 }

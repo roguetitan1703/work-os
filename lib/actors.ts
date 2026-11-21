@@ -4,7 +4,8 @@
 //   { kind: 'user', userId }                  a person in the app
 //   { kind: 'agent', agent, userId }          Claude (claude.ai, a Claude chat key) or Claude Code (a Claude Code key),
 //                                             always acting for the key's owner
-//   { kind: 'discord', userId? }              a person through the Discord bot (the linked user)
+//   { kind: 'discord', userId?, name? }       a person through the Discord bot (the linked user); with no userId it is someone
+//                                             who is not a member (never the reader's own: `name` is their Discord name)
 //   { kind: 'system' }                        migrations, automation
 //   { kind: 'system', via: 'mailloom-intake' } a report from Mailloom's "Report a problem" form (lib/intake.ts): no
 //                                             person and no Claude; its text is the reporter's ('report-author' below)
@@ -13,7 +14,7 @@ export type AgentName = 'claude' | 'claude-code';
 export type Actor =
   | { kind: 'user'; userId: string }
   | { kind: 'agent'; agent: AgentName; userId: string }
-  | { kind: 'discord'; userId?: string }
+  | { kind: 'discord'; userId?: string; name?: string }
   | { kind: 'system'; via?: SystemVia };
 
 /** Which automation a system actor is, when it is one that brings in outside text (shown in history and notices). */
@@ -92,7 +93,7 @@ export function actorLabel(a: unknown, me?: string, people?: Record<string, stri
     case 'user':
       return mine(x.userId) ? 'You' : name(x.userId);
     case 'discord':
-      return mine(x.userId) ? 'You · Discord' : `${name(x.userId)} · Discord`;
+      return !x.userId ? `${x.name ? [...x.name.replace(/[\p{Cc}\p{Cf}]/gu, '')].slice(0, 40).join('') : 'Someone'} · Discord` : mine(x.userId) ? 'You · Discord' : `${name(x.userId)} · Discord`;
     case 'agent': {
       const base = x.agent === 'claude' ? 'Claude' : 'Claude Code';
       return mine(x.userId) ? base : `${base} · ${name(x.userId)}`;
@@ -110,7 +111,7 @@ export function actorOut(a: unknown, me: string, people?: Record<string, string>
   const x = asActor(a);
   if (x.kind === 'user') return !x.userId || x.userId === me ? 'me' : people?.[x.userId] || 'another member';
   if (x.kind === 'agent') return !x.userId || x.userId === me ? x.agent : `${x.agent} for ${people?.[x.userId] || 'another member'}`;
-  if (x.kind === 'discord') return !x.userId || x.userId === me ? 'discord' : `discord (${people?.[x.userId] || 'another member'})`;
+  if (x.kind === 'discord') return !x.userId ? 'discord (not a member)' : x.userId === me ? 'discord' : `discord (${people?.[x.userId] || 'another member'})`;
   const via = viaLabel(x);
   return via ? `system (${via})` : 'system';
 }

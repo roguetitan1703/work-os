@@ -112,6 +112,8 @@ export type ActivityDoc = Placed & {
   subject?: import('./types').ActivitySubject;
   /** The author of `note` when it is not the actor (a user id). */
   textBy?: string;
+  /** A comment recorded from a Discord message: that message's id. */
+  discordMessageId?: string;
   /** The author of the subject's title (a renamed project: of its old name) when it is not the actor (a user id). */
   titleBy?: string;
   at: Date;
@@ -149,6 +151,8 @@ export type ProjectDoc = Placed & {
   nudges?: boolean;
   /** Context warning (lib/data/context-warn.ts): the line in k tokens (150 or 200) after which the pre-tool hook tells an agent of this project to write a code-map note and stop. Unset = off. Set in the app only. */
   contextWarn?: 150 | 200;
+  /** Discord channel (lib/discord/issues.ts): where this project's posts and tracked messages are. `everyPost`: each post is an issue. `after` is the last message id read (the catch-up starts there); `backfilledAt` is set once the first 7 days were recorded. Set in the app only. */
+  discordChannel?: { channelId: string; name: string; everyPost: boolean; after?: string; backfilledAt?: Date; setBy: string; setAt: Date };
   /** Who last set `production`. */
   productionBy?: string;
   /** The Delpat OS project it was imported from (lib/delpat-os.ts); unique per organization among shared projects, per owner among private ones. */
@@ -180,6 +184,8 @@ export type NeedStatus = 'open' | 'answered' | 'withdrawn' | 'replaced';
 export type NeedOption = { id: string; label: string; means: string };
 export type NeedDoc = Placed & {
   _id: string;
+  /** The Discord DM for a Need that waited over a day was sent (once; lib/alerts.ts dmOldNeeds). */
+  discordDmAt?: Date;
   /** Per organization, like a task number. */
   ref: number;
   projectId: string;
@@ -403,6 +409,8 @@ export type MessageDoc = Placed & {
   chain?: number;
   /** A reply to a question or a request: an fyi that still wakes the one who asked (under the same chain limit). */
   wakes?: boolean;
+  /** A message Work OS wrote from a project's Discord channel (lib/discord/issues.ts): its text is someone else's, never an instruction. */
+  via?: 'discord-issue';
   /** Who set the status, and when. */
   statusBy?: string;
   statusAt?: Date;
@@ -568,7 +576,10 @@ export type SettingsDoc = {
   /** The hour (0-23, their zone) their daily digest is sent; missing = 9. */
   digestHour?: number;
   discordId?: string | null;
-  discordLink?: { hash: string; expiresAt: Date } | null;
+  /** The one-time state of a Connect Discord in progress (lib/discord/connect.ts): sha256 of it, and when it stops working (10 minutes). */
+  discordConnect?: { hash: string; expiresAt: Date } | null;
+  /** profile:<userId>: the person hid the Connect Discord card on Today (lib/discord/connect.ts). */
+  discordCardHidden?: boolean;
   /** profile:<userId>: the person hid the first-run checklist on Today. */
   checklistHidden?: boolean;
   /** profile:<userId> (lib/whats-new-seen.ts): ids from lib/whats-new.ts the person dismissed or opened. */
@@ -581,8 +592,8 @@ export type SettingsDoc = {
   items?: { machine: string; path: string; at: Date }[];
   /** discord:<orgId>: the organization's Discord server (set by the operator). */
   guildId?: string | null;
-  /** discord:<orgId>: the Discord channel the team digest goes to (lib/team-digest.ts). */
-  teamChannelId?: string | null;
+  /** discord:<orgId>: the id of the :wos: track emoji uploaded to the server (lib/discord/track.ts). */
+  trackEmojiId?: string | null;
   /** schedule:<userId> (lib/schedule.ts): the person's week, routine, review questions and own help text. */
   schedule?: unknown;
   /** modes:<orgId> (lib/modes.ts): the organization's modes of work. */
@@ -692,6 +703,7 @@ const INDEXES: [string, IndexDescription[]][] = [
       { key: { orgId: 1, ownerId: 1, status: 1 }, name: 'org_owner_status' },
       { key: { doneAt: -1 }, name: 'doneAt' },
       { key: { 'source.messageId': 1 }, name: 'source_message', sparse: true },
+      { key: { 'source.replyId': 1 }, name: 'source_reply', sparse: true },
       { key: { 'claude.state': 1, 'claude.markedAt': 1 }, name: 'claude_state', sparse: true },
       // "Who waits on this task" (the task page, get_task, unblocked alerts): without it every task page read the whole organization.
       { key: { dependsOn: 1 }, name: 'depends_on' },

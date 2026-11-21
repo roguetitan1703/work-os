@@ -69,6 +69,14 @@ export const WHATS_NEW: readonly WhatsNewEntry[] = [
     href: '/projects',
   },
   {
+    id: 'discord-in-work-os',
+    date: '2026-11-21',
+    title: 'Work OS in Discord',
+    line: "Connect your Discord account, and posts in a project's bug channel or marked with the track emoji become tasks you can Undo, finish or hand to someone from Discord.",
+    where: 'Settings › Notifications, and the card on Today',
+    href: '/settings?section=notifications',
+  },
+  {
     id: 'needs-one-line',
     date: '2026-11-20',
     title: 'Needs fold to one line',
