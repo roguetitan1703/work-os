@@ -129,27 +129,46 @@ export async function touchIdentity(identity: AgentIdentityDoc, o: { ccSession?:
  *     before ids were stable): its work moves to the session's row (lib/session-move.ts) and it ends;
  *   - an open row of the session on another project (or none), or of its Claude Code session ids under another project or on another
  *     computer: it ends only (the sweep, lib/data/pickup.ts, hands its work on later).
- * A busy row (working, or at a permission prompt) under another id is never closed (it may be a live writer; the session's own rows end whatever they show, since their last event came before the move), and a start_work row (no Claude Code session id) is never touched.
+ * A busy row (working, or at a permission prompt) is never closed, whoever's it is (plan: a second window of the session may be working
+ * on its project while another window starts on another project; the sweep ends that row once it is idle), and a start_work row (no
+ * Claude Code session id) is never touched.
+ * Returns what a moved row was doing when the session's row on this project does not exist yet (the brief makes it after this):
+ * pass it to restoreDoing after the brief.
  */
-export async function closeLeftBehind(s: Scope, sid: string, projectId: string | null): Promise<void> {
+export async function closeLeftBehind(s: Scope, sid: string, projectId: string | null): Promise<{ doing?: NonNullable<PresenceDoc['doing']> }> {
   const rec = await identityById(sid);
-  if (!rec || rec.ownerId !== s.userId) return;
+  if (!rec || rec.ownerId !== s.userId) return {};
   const c = await scoped(s);
   const now = Date.now();
   const ccs = rec.ccSessions ?? [];
   const rows = await c.presence.find({ userId: s.userId, endedAt: { $exists: false }, $or: [{ session: sid }, ...(ccs.length ? [{ ccSession: { $in: ccs } }] : [])] }).limit(50).toArray();
   const toId = hookRowId(s.userId, sid, projectId);
   let to: PresenceDoc | null | undefined;
+  let left: { doing: NonNullable<PresenceDoc['doing']>; at: number } | undefined;
   for (const r of rows) {
     if (r._id === toId) continue; // the session's own row on this project
     if (r.session !== sid && !(r.ccSession && ccs.includes(r.ccSession))) continue;
-    if (r.session !== sid && busy(r, now)) continue; // the session's own rows end whatever they show (their last event was before the move)
+    if (busy(r, now)) continue; // a busy row is never closed
     const here = !!projectId && r.projectId === projectId && !!r.session && r.session !== sid && r.machine === rec.deviceId;
     if (here) {
       if (to === undefined) to = await c.presence.findOne({ _id: toId });
-      await moveSessionWork(c as never, projectId!, r, to ?? { _id: toId, userId: s.userId, key: sid, session: sid }, now);
+      const moved = await moveSessionWork(c as never, projectId!, r, to ?? { _id: toId, userId: s.userId, key: sid, session: sid }, now);
+      // The session's row does not exist yet, so the move matched nothing: the newest closed row's doing is handed back.
+      if (r.doing && !moved.doing) {
+        const at = r.lastSeen ? new Date(r.lastSeen).getTime() : 0;
+        if (!left || at > left.at) left = { doing: r.doing, at };
+        await c.presence.updateOne({ _id: r._id }, { $unset: { doing: '' } });
+      }
     } else await c.presence.updateOne({ _id: r._id, endedAt: { $exists: false } }, { $set: { endedAt: new Date(now) } });
   }
+  return left ? { doing: left.doing } : {};
+}
+
+/** Puts what a closed row was doing on the session's row on the project, when that row has nothing of its own (run after the brief made it). */
+export async function restoreDoing(s: Scope, sid: string, projectId: string, doing: NonNullable<PresenceDoc['doing']> | undefined): Promise<void> {
+  if (!doing) return;
+  const c = await scoped(s);
+  await c.presence.updateOne({ _id: hookRowId(s.userId, sid, projectId), doing: { $exists: false } }, { $set: { doing } });
 }
 
 /** The worker folder ids of a project on a computer, for a session that stays on its project from a folder that is not one of them. */

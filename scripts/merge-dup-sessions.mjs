@@ -12,7 +12,7 @@
 // (nothing is filed there to move). The move is lib/session-move.ts, the code the app runs at sign-in. A second --apply finds nothing.
 // Prints counts only, never any text.
 import { MongoClient } from 'mongodb';
-import { moveSessionWork } from '../lib/session-move.ts';
+import { copySeenBy, moveOwnedWork, moveSessionWork } from '../lib/session-move.ts';
 
 const args = process.argv.slice(2);
 const val = f => (args.indexOf(f) >= 0 && args[args.indexOf(f) + 1] && !args[args.indexOf(f) + 1].startsWith('--') ? args[args.indexOf(f) + 1] : null);
@@ -39,8 +39,8 @@ try {
   console.log(`${APPLY ? 'APPLY' : 'DRY RUN (nothing changes; add --apply)'} on database "${source}" at ${host(uri)}${onlyOrg ? ` (organization ${onlyOrg})` : ''}\n`);
   const rows = await cols.presence
     .find({ ccSession: { $exists: true, $ne: '' }, session: { $exists: true }, endedAt: { $exists: false }, movedTo: { $exists: false }, ...(onlyOrg ? { orgId: onlyOrg } : {}) })
-    .sort({ lastSeen: -1 })
     .toArray();
+  const seenAt = r => (r.lastSeen ? new Date(r.lastSeen).getTime() : 0); // a row with no lastSeen counts as the oldest
   const groups = new Map();
   for (const r of rows) {
     const k = [r.userId, r.ccSession, r.projectId ?? 'none', r.machine ?? ''].join('|');
@@ -51,38 +51,55 @@ try {
   let nGroups = 0;
   let nRows = 0;
   let nSkipped = 0;
-  const mergedIds = new Set();
+  let tokens = 0;
+  const identities = new Map(); // ownerId|device|ccSession -> the session record's id (that id is never merged away and its tokens never deleted)
+  const identityOf = async r => {
+    const k = [r.userId, r.machine ?? '', r.ccSession].join('|');
+    if (!identities.has(k)) identities.set(k, (await db.collection('agentIdentities').findOne({ ownerId: r.userId, deviceId: r.machine, ccSessions: r.ccSession }, { projection: { _id: 1 } }))?._id ?? null);
+    return identities.get(k);
+  };
+  const isIdentity = async id => !!(await db.collection('agentIdentities').findOne({ _id: id }, { projection: { _id: 1 } }));
+  const tokenFilter = id => ({ $or: [{ sessionId: id }, { _id: id }] });
+  let tokensToDelete = 0;
   const total = { needs: 0, messages: 0, lines: 0, slots: 0, parents: 0, claims: 0, handovers: 0 };
   for (const g of groups.values()) {
     if (g.length < 2) continue;
-    const [keep, ...older] = g; // newest first
+    g.sort((a, b) => seenAt(b) - seenAt(a)); // newest first
+    // The row of the session record's own id is kept when it is there (its tokens stay valid); else the newest.
+    const idSid = await identityOf(g[0]);
+    const keep = (idSid && g.find(r => r.session === idSid)) || g[0];
+    const older = g.filter(r => r !== keep);
     nGroups++;
     for (const from of older) {
-      if (now - from.lastSeen.getTime() < RECENT_MS) {
+      if (now - seenAt(from) < RECENT_MS) {
         nSkipped++;
         continue;
       }
       const fk = `${from.userId}:${from.key}`;
       const needsOpen = from.projectId ? await cols.needs.countDocuments({ projectId: from.projectId, 'from.session': from.session, status: { $in: ['open', 'answered'] }, briefedAt: { $exists: false } }) : 0;
-      const unread = from.projectId ? await cols.messages.countDocuments({ projectId: from.projectId, toSids: fk, status: { $in: ['unread', 'seen'] } }) : 0;
+      const unread = await cols.messages.countDocuments({ projectId: from.projectId ?? null, toSids: fk, status: { $in: ['unread', 'seen'] } });
+      const toks = (await isIdentity(from.session)) ? 0 : await db.collection('agentSessions').countDocuments(tokenFilter(from.session));
       nRows++;
       if (!APPLY) {
+        tokensToDelete += toks;
         console.log(`  would merge a row of project ${from.projectId ?? 'none'} into the newest of its session (needs open: ${needsOpen}, messages addressed: ${unread})`);
         continue;
       }
+      // The row's tokens go first, one row at a time: a crash after this leaves the row open, and a rerun merges it (nothing is left half done).
+      if (toks) tokens += (await db.collection('agentSessions').deleteMany(tokenFilter(from.session))).deletedCount;
       if (from.projectId) {
         const m = await moveSessionWork(cols, from.projectId, from, keep, now);
         for (const k of Object.keys(total)) total[k] += m[k] ?? 0;
-      } else await cols.presence.updateOne({ _id: from._id }, { $set: { movedTo: keep.key, swept: new Date(now), endedAt: new Date(now) } });
-      mergedIds.add(from.session);
+      } else {
+        // Filed nowhere: its unread messages (no project) and read marks follow; nothing else is held there.
+        await moveOwnedWork(cols, null, from, keep);
+        await copySeenBy(cols, null, from, keep);
+        await cols.presence.updateOne({ _id: from._id }, { $set: { movedTo: keep.key, swept: new Date(now), endedAt: new Date(now) } });
+      }
     }
   }
-  let tokens = 0;
-  if (APPLY && mergedIds.size) {
-    const ids = [...mergedIds];
-    tokens = (await db.collection('agentSessions').deleteMany({ $or: [{ sessionId: { $in: ids } }, { _id: { $in: ids } }] })).deletedCount;
-  }
   console.log(`\n${nGroups} group(s) with more than one open row; ${nRows} row(s) ${APPLY ? 'merged' : 'to merge'}, ${nSkipped} skipped (seen in the last 30 minutes).`);
+  if (!APPLY) console.log(`Token rows --apply would delete: ${tokensToDelete}.`);
   if (APPLY) console.log(`Moved: ${total.needs} Needs, ${total.messages} messages, ${total.lines} lines, ${total.slots} slot holds, ${total.parents} parents, ${total.claims} claimed items, ${total.handovers} handovers. Token rows deleted: ${tokens}.`);
 } finally {
   await client.close();

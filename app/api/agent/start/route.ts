@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { verifyDeviceKey, DEVICE_KEY_PREFIX } from '@/lib/devices';
-import { AGENT_TOKEN_PREFIX, createAgentSession, dispatchedOfToken, dispatchedSession, closeLeftBehind, findIdentity, identityById, projectFolderIds, projectOnDevice, projectRemotes, touchIdentity } from '@/lib/agent-sessions';
+import { AGENT_TOKEN_PREFIX, createAgentSession, dispatchedOfToken, dispatchedSession, closeLeftBehind, restoreDoing, findIdentity, identityById, projectFolderIds, projectOnDevice, projectRemotes, touchIdentity } from '@/lib/agent-sessions';
 import { normalizeRemote } from '@/lib/data/code-locations';
 import { agentReply as reply, agentUnauthorized as unauthorized, authAgentToken, bearerOf as bearer, readCapped } from '@/lib/agent-auth';
 import { roleOf } from '@/lib/caller';
@@ -226,7 +226,7 @@ export async function POST(req: Request): Promise<Response> {
         session = { id: made.id, projectId, expiresAt: made.expiresAt };
       } else dispatched = await dispatchedOfToken(session.id);
       await touchIdentity(identity!, { ccSession: b.ccSession, proc: b.proc, projectId, ...(token ? { dispatched } : {}) });
-      await closeLeftBehind(s, session.id, projectId); // the session is on this project now: its rows on another project, another computer or under an older id close, before the brief
+      const left = await closeLeftBehind(s, session.id, projectId); // the session is on this project now: its rows on another project, another computer or under an older id close, before the brief
       const ctx = ctx0;
       // The session id is the session record's id, never a token.
       // Where this session works: no version bump (lib/data/states.ts setWhere). Only when the hook sent something to show, and never from a folder that is not the project's.
@@ -234,6 +234,7 @@ export async function POST(req: Request): Promise<Response> {
       // Hook protocol: the X-Work-OS-Hook header; a start without it is the old hook (1, still gets the copy in answers).
       const sidNow = session.id;
       const brief = await again(() => startWorkBrief(ctx, projectId!, sidNow, { hook: hook ?? 1, viaHook: true, branch: b.branch, machine: device.id, ccSession: b.ccSession, source: b.source, label: b.label, title: b.title, aiTitle: b.aiTitle, tool: b.tool, model: b.model, account: b.account, ...(dispatched ? { dispatched } : {}) }));
+      await restoreDoing(s, session.id, projectId, left.doing); // what the closed row was doing goes on the new row (it did not exist when the work moved)
       // Lanes step 6: the folder's key (sha1 of the computer and the path, never the path) goes on the row; another live session in it is the brief's sameFolder.
       let sameFolder: Awaited<ReturnType<typeof sameFolderOf>> = null;
       if (!elsewhere) {

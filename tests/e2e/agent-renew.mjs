@@ -89,6 +89,8 @@ try {
   // ---- renew when the folder is no longer linked on this computer: unfiled, as a fresh start would ----
   await rawDb.collection('workerFolders').updateOne({ _id: `${dev.id}:rfold2` }, { $set: { missing: true } });
   await rawDb.collection('agentSessions').updateMany({ sessionId: sid2 }, { $set: { expiresAt: new Date(Date.now() - 1000) } });
+  // The project row was working a moment ago; a busy row is never closed (plan B3), so it has gone idle by now.
+  await rawDb.collection('presence').updateOne({ session: sid2, projectId: p2 }, { $set: { activity: { state: 'on', at: new Date(Date.now() - 600_000) }, lastSeen: new Date(Date.now() - 600_000) } });
   const r3 = await call('/api/agent/start', dev.key, { renew: true, ccSession: CC2 });
   const tok3 = await rawDb.collection('agentSessions').findOne({ hash: hash(r3.json?.token ?? 'x') });
   check('renew for a project whose folder is unlinked here: a token with no project, and the record unfiled', r3.status === 200 && r3.json?.session === sid2 && tok3 && !tok3.projectId && !(await rawDb.collection('agentIdentities').findOne({ _id: sid2 })).projectId, `${r3.status} ${r3.text.slice(0, 120)} ${JSON.stringify(tok3)?.slice(0, 160)}`);

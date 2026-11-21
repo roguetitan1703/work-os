@@ -33,10 +33,10 @@ const fullKey = (r: Pick<MoveRow, 'userId' | 'key'>) => `${r.userId}:${r.key}`;
  * Needs and unread messages of `from` go to `to` (same person only; the callers decide whether to). Needs: open, or answered and not
  * yet briefed, asked by `from` (its session id and key id) or handed to its session; rewritten to `to` so `to` is handed the answers and
  * may withdraw them. Messages: addressed to `from`'s key and not read by it, not sent by `to`, readdressed to `to`'s key (a message `to`
- * sent to `from` stays as it is). Messages `from` has read are marked read by `to`'s key too, so mail that was read stays read.
+ * sent to `from` stays as it is). Read marks are not copied here (see copySeenBy).
  */
-export async function moveOwnedWork(cols: Pick<MoveCols, 'needs' | 'messages'>, projectId: string, from: MoveRow, to: MoveRow): Promise<{ needs: number; messages: number; seen: number }> {
-  if (from.userId !== to.userId) return { needs: 0, messages: 0, seen: 0 };
+export async function moveOwnedWork(cols: Pick<MoveCols, 'needs' | 'messages'>, projectId: string, from: MoveRow, to: MoveRow): Promise<{ needs: number; messages: number }> {
+  if (from.userId !== to.userId) return { needs: 0, messages: 0 };
   let needs = 0;
   if (from.session && to.session) {
     const open = [{ status: 'open' }, { status: 'answered', briefedAt: { $exists: false } }];
@@ -57,10 +57,22 @@ export async function moveOwnedWork(cols: Pick<MoveCols, 'needs' | 'messages'>, 
   const tk = fullKey(to);
   // Both forms of "unread by from": a seenBy list without it, or (messages from before per-session read state) none and the status still unread.
   const unreadByFrom = [{ seenBy: { $exists: true, $nin: [fk] }, status: { $in: ['unread', 'seen'] } }, { seenBy: { $exists: false }, status: 'unread' }];
+  // A message addressed to both keys only loses the old one (the new key is not written twice); the rest is readdressed.
+  const both = await cols.messages.updateMany({ projectId, toSids: { $all: [fk, tk] }, src: { $ne: tk }, $or: unreadByFrom }, { $pull: { toSids: fk } });
   const m = await cols.messages.updateMany({ projectId, toSids: fk, src: { $ne: tk }, $or: unreadByFrom }, { $set: { 'toSids.$[e]': tk } }, { arrayFilters: [{ e: fk }] });
-  // Read by the old key: read by the new one too (at most 50 keys, as everywhere seenBy is written).
+  return { needs, messages: m.modifiedCount + both.modifiedCount };
+}
+
+/**
+ * Messages `from`'s key has read are marked read by `to`'s key too, so mail that was read stays read (at most 50 keys, as everywhere
+ * seenBy is written). Only for two rows of the SAME Claude Code session (moveSessionWork): never for a pickup or a sweep, where `to` is
+ * another live session and a read mark of the gone one would make `to` treat a message sent to nobody in particular as read.
+ */
+export async function copySeenBy(cols: Pick<MoveCols, 'messages'>, projectId: string | null, from: MoveRow, to: MoveRow): Promise<number> {
+  const fk = fullKey(from);
+  const tk = fullKey(to);
   const seen = await cols.messages.updateMany({ projectId, seenBy: { $in: [fk], $nin: [tk] } }, { $push: { seenBy: { $each: [tk], $slice: -50 } } });
-  return { needs, messages: m.modifiedCount, seen: seen.modifiedCount };
+  return seen.modifiedCount;
 }
 
 /**
@@ -88,7 +100,7 @@ export async function moveHolds(
   for (const list of ['next', 'later'] as const) {
     for (const l of st[list] ?? []) {
       if (!(l.hold?.key === hk || (!l.hold && o.ref != null && l.ref === o.ref))) continue;
-      const r = await cols.states.updateOne({ _id: projectId }, { $set: { [`${list}.$[l].hold`]: { key: tk, at } } }, { arrayFilters: [{ 'l.id': l.id }] });
+      const r = await cols.states.updateOne({ _id: projectId }, { $set: { [`${list}.$[l].hold`]: { key: tk, at } } }, { arrayFilters: [l.hold ? { 'l.id': l.id, 'l.hold.key': hk } : { 'l.id': l.id, 'l.hold': { $exists: false } }] }); // not a hold another session took meanwhile
       if (r.modifiedCount) lines++;
     }
   }
@@ -108,6 +120,7 @@ export async function moveSessionWork(cols: MoveCols, projectId: string, from: M
   const at = new Date(now);
   const owned = await moveOwnedWork(cols, projectId, from, to);
   Object.assign(out, owned);
+  out.seen = await copySeenBy(cols, projectId, from, to); // the same Claude Code session: its read marks go with it
   const st = (await cols.states.findOne({ _id: projectId }, { projection: { now: 1, next: 1, later: 1 } })) as Parameters<typeof moveHolds>[2];
   const held = await moveHolds(cols, projectId, st, from, to, at, { label: to.label });
   out.lines = held.lines;
