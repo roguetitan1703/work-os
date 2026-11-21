@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 296. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 297. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -16,7 +16,7 @@ Copy of the Work OS state, version 296. WORK-STATE.md is a copy of the State, wr
 8. Method trial (Om, 21 Nov): lead plan + Sonnet build vs Opus builder. Tag each piece of work with its method; on 23 Nov compare usage (usage page) and review findings/rework, report to Om.
 9. Per-project Working plan: the server swaps a project's own '## Working plan' into the Delpat Orders (dev 80aee73, reviewed). Work OS plan note 6f53fca67c waits for Om to mark it as the project's Orders; Grant Leads writes its own and Om marks it. Swap live (330d27c). Om questions whether per-project plans are needed; Grant Leads lead asked replace vs add (m_590d82a004e7). — waits on Om: release yes, mark the notes
 10. Discord v4 live (a3b867a, 21 Nov): listener running on the server, connected, no gateway errors. Waits on Om's steps in note 34a1383581 (portal URLs, Message Content intent, DISCORD_CLIENT_SECRET, wos emoji, Connect Discord, bug channels); then try a real post in #delpat-os. — waits on Om's Discord steps
-11. Work OS Working plan, draft 3 (flows: cost = context x calls; design-plan-build-review-merge-release owners; bookkeeping rides with the action; lead compacts ~150K; weekly waste measure) plus the hook change (save-State reminder in the push's own result, Stop block only as last resort). — waits on Om's yes on draft 3
+11. Work OS Working plan written (6f53fca67c, 21 Nov); Om marks it as the project's Orders layer. Hook change (save reminder with the merge/push/release itself) on dev, 524 worker tests pass; ships with the next release (signed worker). cost = context x calls; design-plan-build-review-merge-release owners; bookkeeping rides with the action; lead compacts ~150K; weekly waste measure) plus the hook change (save-State reminder in the push's own result, Stop block only as last resort). — waits on Om's yes on draft 3
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -87,7 +87,8 @@ Copy of the Work OS state, version 296. WORK-STATE.md is a copy of the State, wr
 - Trim the session start load (about 74K fixed, measured 21 Nov): switch off connectors Work OS never uses (BrahmaSuite admin, two grants servers, vidIQ) for Work OS sessions; check /context for the exact split.
 - Compaction cost measured 21 Nov: about 90K input-equivalent once (192K read + 4.5K summary + 35K cache rebuild); saves about 10K per call after, pays off after about 9 calls. Supports compacting the lead earlier (~150K).
 - Stop hook forces an extra turn after every merge or release just to save State; make the release flow save State itself (working plan draft 2, point 5).
+- Usage metric: subscription limits are % of the 5-hour and weekly windows, weighting not published. Compare work in API-price-weighted input tokens from transcripts (input + 0.1 cache read + 1.25 cache write + 5 output) as a stand-in; check it against get_usage % moves.
 
 ## Parked
 - 2 lines in Work OS: list_parked, or the project page.
-<!-- work-os-copy sha1:36a4e69b3f34d3c40907e553590ded81a372a939 -->
+<!-- work-os-copy sha1:3aea195516319cbe175f21b7097cf997b2452ffa -->
