@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 303. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 304. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -16,7 +16,8 @@ Copy of the Work OS state, version 303. WORK-STATE.md is a copy of the State, wr
 8. Method trial (Om, 21 Nov): lead plan + Sonnet build vs Opus builder. Tag each piece of work with its method; on 23 Nov compare usage (usage page) and review findings/rework, report to Om.
 9. Per-project Working plan: the server swaps a project's own '## Working plan' into the Delpat Orders (dev 80aee73, reviewed). Work OS plan note 6f53fca67c waits for Om to mark it as the project's Orders; Grant Leads writes its own and Om marks it. Swap live (330d27c). Om questions whether per-project plans are needed; Grant Leads lead asked replace vs add (m_590d82a004e7). — waits on Om: release yes, mark the notes
 10. Discord v4 live (a3b867a, 21 Nov): listener running on the server, connected, no gateway errors. Waits on Om's steps in note 34a1383581 (portal URLs, Message Content intent, DISCORD_CLIENT_SECRET, wos emoji, Connect Discord, bug channels); then try a real post in #delpat-os. — waits on Om's Discord steps
-11. Next release carries: org Orders under Delpat at the top of Notes (df94585) and a Share button on the note page (merged to dev after review; flow-h9 132/0), plus the save-with-action hook change. — waits on Om's yes to release
+11. Next release carries: org Orders under Delpat at the top of Notes (df94585) and a Share button on the note page (merged to dev after review; flow-h9 132/0), plus the save-with-action hook change, and pull to refresh keeps its spinner 500 ms (builder B, reviewed; e2e 5/0 light and dark). — waits on Om's yes to release
+12. Session identity: one Claude session got three Work OS identities (Grant Leads, 20-21 Nov): an unfiled start (subfolder/parent cwd) then refile minted new ids; old rows never end and show Working. Plan 4277b6ce02 building in slot A; Fable reviewing the whole harness (identity, presence, messaging) before anything merges. — waits on Fable review + slot A build
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -92,4 +93,4 @@ Copy of the Work OS state, version 303. WORK-STATE.md is a copy of the State, wr
 
 ## Parked
 - 2 lines in Work OS: list_parked, or the project page.
-<!-- work-os-copy sha1:dead3a985a371ae4b512863909554fad35a7a848 -->
+<!-- work-os-copy sha1:8ddff87924f9b374f1b31432ed678079122b64b3 -->
