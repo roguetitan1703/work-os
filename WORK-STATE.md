@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 290. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 291. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -15,7 +15,7 @@ Copy of the Work OS state, version 290. WORK-STATE.md is a copy of the State, wr
 7. Context warning per project (Om, 21 Nov; Grant Leads asked): pre-tool hook reads each agent's context locally, warns at the project's line (150k for Grant Leads, off elsewhere), peak context in usage. Plan note 3e92845ac0; Merged to dev 21 Nov after review (method: lead plan + Sonnet; 521 worker tests, 8 suites pass). Live 21 Nov (f1812f0, worker 20261120.234229, with the new icon). Om sets Grant Leads to 150k. — waits on builder A's hook-gate merge
 8. Method trial (Om, 21 Nov): lead plan + Sonnet build vs Opus builder. Tag each piece of work with its method; on 23 Nov compare usage (usage page) and review findings/rework, report to Om.
 9. Discord issue channel + one bot for everybody (Om, 21 Nov): #delpat-os for Work OS, #mailloom for Mailloom; server records each post as a task, lead replies one line, fixes with subagents, posts done; Build plan v4 (note c7b491432a): live listener, bug channels, track emoji, Undo/Done/For buttons, OAuth link, agent tools, DMs for reels and day-old Needs. Built in slot S; review found 1 blocker, fixes back to the builder. Plan note c7b491432a; v1 build stopped, kept at e1a92cf on builder-s. — waits on Om's go for plan v2
-10. Per-project Working plan: the server swaps a project's own '## Working plan' into the Delpat Orders (dev 80aee73, reviewed). Work OS plan note 6f53fca67c waits for Om to mark it as the project's Orders; Grant Leads writes its own and Om marks it. Release 8521baa building; mark 6f53fca67c after Om OKs the text. — waits on Om: release yes, mark the notes
+10. Per-project Working plan: the server swaps a project's own '## Working plan' into the Delpat Orders (dev 80aee73, reviewed). Work OS plan note 6f53fca67c waits for Om to mark it as the project's Orders; Grant Leads writes its own and Om marks it. Swap live (330d27c). Om questions whether per-project plans are needed; Grant Leads lead asked replace vs add (m_590d82a004e7). — waits on Om: release yes, mark the notes
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -86,4 +86,4 @@ Copy of the Work OS state, version 290. WORK-STATE.md is a copy of the State, wr
 
 ## Parked
 - 2 lines in Work OS: list_parked, or the project page.
-<!-- work-os-copy sha1:3cd5290528e6997f0984b0134a86ecdd37863634 -->
+<!-- work-os-copy sha1:6ec06c2edadbe2e73b09b2b745882f9abf79ef74 -->
