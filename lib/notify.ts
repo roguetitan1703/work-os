@@ -6,7 +6,7 @@ import { getUserSetting, scoped, setUserSetting, type Scope } from './scope';
 
 // Where alerts go: in-app inbox (always), phone push (Web Push) and Discord DM, each
 // switchable in Settings, plus per-alert-type switches. Also tracks "last seen" times
-// for the status panel (Claude connector, Discord commands). Everything here is per person: their settings
+// for the status panel (Claude connector, Discord). Everything here is per person: their settings
 // (notify:<userId>), their inbox, their push devices (docs/multi-user.md "Inbox, push, alerts").
 
 export const ALERT_KINDS: { kind: AlertKind; label: string; hint: string }[] = [

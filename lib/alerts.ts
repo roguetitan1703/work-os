@@ -15,7 +15,6 @@ import { isMember, memberNames } from './people';
 import { actorLabel } from './actors';
 import { reachesPhone, shortAsk } from './data/needs';
 import { roster, unblockedNext } from './data/roster';
-import { needButtons } from './discord/need-buttons';
 
 // Nudges for each person about the tasks whose alerts go to them (recipientsOf: the assignees of a shared task, else
 // its owner), to their inbox, their phones and (if they linked Discord) a Discord DM, by their own settings, in their
@@ -51,9 +50,9 @@ export const ALERT_RULES = {
 
 /** A section of the daily digest; rows with a ref link to the task. */
 export type DigestSection = { head: string; /** Rows are numbered 1. 2. 3. instead of bulleted. */ numbered?: boolean; rows: { ref?: number; text: string; detail?: string; /** A link target that is not the task (a Need opens on Today). */ url?: string; /** Link text when it is not "#ref". */ label?: string }[] };
-export type Digest = { sections: DigestSection[]; /** One line for the inbox and push. */ summary: string; /** Nothing to say: the day is claimed, nothing is sent. */ empty: boolean; /** Log keys the digest takes over (due today, overdue, stalled), claimed with it. */ absorb: { key: string; kind: AlertKind; taskId: string }[]; /** The Needs that may be answered from Discord (never app-only or review ones): one small message each with its options as buttons, oldest first, at most 5. */ needs?: { needId: string; label: string; title: string; buttons: { id: string; label: string }[] }[] };
+export type Digest = { sections: DigestSection[]; /** One line for the inbox and push. */ summary: string; /** Nothing to say: the day is claimed, nothing is sent. */ empty: boolean; /** Log keys the digest takes over (due today, overdue, stalled), claimed with it. */ absorb: { key: string; kind: AlertKind; taskId: string }[]; };
 
-export type AlertItem = { key: string; kind: AlertKind; digest?: Digest; /** Where tapping its inbox row or push goes, when not the task. */ url?: string; ref: number; title: string; detail?: string; resend?: boolean; taskId?: string; prevSentAt?: Date; /** Inbox and push title, when the default "Kind: #ref title" does not fit. */ headline?: string; /** The link text when it is not "#ref". */ label?: string; /** need alerts: what Discord shows as buttons under the DM (never for an app-only Need). */ needId?: string; buttons?: { id: string; label: string }[] };
+export type AlertItem = { key: string; kind: AlertKind; digest?: Digest; /** Where tapping its inbox row or push goes, when not the task. */ url?: string; ref: number; title: string; detail?: string; resend?: boolean; taskId?: string; prevSentAt?: Date; /** Inbox and push title, when the default "Kind: #ref title" does not fit. */ headline?: string; /** The link text when it is not "#ref". */ label?: string; };
 
 const CLAUDE_OUTCOMES = ['claude_finished', 'claude_stopped'] as const;
 /** Event alerts that live in alertQueue and are claimed there (not in alertLog). */
@@ -191,7 +190,6 @@ function quietFor(ms: number): string {
 }
 
 const MAX_NEED_LINES = 8;
-const MAX_NEED_BUTTONS = 5;
 const MAX_TODAY = 3;
 const MAX_AGENT_LINES = 5;
 
@@ -209,7 +207,6 @@ async function buildDigest(
   const { tz, today, open } = x;
   const sections: DigestSection[] = [];
   const absorb: Digest['absorb'] = [];
-  const needAsks: NonNullable<Digest['needs']> = [];
 
   const lastAny = await c.alertLog.findOne({ kind: 'digest' }, { sort: { sentAt: -1 }, projection: { sentAt: 1 } });
   const since = lastAny ? lastAny.sentAt : previousWorkdayStart(today, tz);
@@ -230,10 +227,7 @@ async function buildDigest(
       };
     });
     if (allNeeds.length > MAX_NEED_LINES) rows.push({ label: `+${allNeeds.length - MAX_NEED_LINES} more`, url: '/needs', text: 'in the app' });
-    // Buttons never for an app-only or review Need (Discord may steer, never release).
-    const answerable = allNeeds.filter(n => !n.appOnly && n.kind !== 'review' && n.options.length).slice(0, MAX_NEED_BUTTONS);
-    for (const n of answerable) needAsks.push({ needId: n._id, label: `Need #${n.ref}`, title: neutralAlertText(shortAsk(n.ask)), buttons: n.options.map(o => ({ id: o.id, label: o.label })) });
-    sections.push({ head: `🙋 **Needs you** (${allNeeds.length}, oldest first${needAsks.length ? '; buttons below' : ''})`, rows });
+    sections.push({ head: `🙋 **Needs you** (${allNeeds.length}, oldest first)`, rows });
   }
 
   // The morning's due today, overdue and stalled alerts are taken over (claimed with the digest), listed or not.
@@ -386,7 +380,7 @@ async function buildDigest(
   const first = !(await c.alertLog.findOne({ kind: 'digest', empty: { $ne: true } }, { projection: { _id: 1 } }));
   const empty = !sections.length;
   if (first && !empty) sections.unshift({ head: 'ℹ️ **New: your daily digest**', rows: [{ text: 'The morning alerts (due today, overdue, stalled) now come in this one message, once a day. Something that turns due, overdue or quiet later still alerts on its own.' }] });
-  return { key: x.key, kind: 'digest', ref: 0, title: 'Your daily digest', headline: 'Your daily digest', url: '/today', detail: summary, digest: { sections, summary, empty, absorb, needs: needAsks } };
+  return { key: x.key, kind: 'digest', ref: 0, title: 'Your daily digest', headline: 'Your daily digest', url: '/today', detail: summary, digest: { sections, summary, empty, absorb } };
 }
 
 /** ids: only these queue entries (the ones this run claimed); omitted = everything still unsent (dry run). */
@@ -418,7 +412,6 @@ async function queuedItems(c: Collections, ids?: string[]): Promise<AlertItem[]>
           title: ask,
           detail: `${who}${n.taskRef ? ` · on #${n.taskRef}` : ''}${n.appOnly || n.kind === 'review' ? ' · answer in the app' : ''}`,
           headline: `${who} asks you: ${ask}`,
-          ...(n.appOnly || n.kind === 'review' ? {} : { needId: n._id, buttons: n.options.map(o => ({ id: o.id, label: o.label })) }),
         });
         continue;
       }
@@ -605,10 +598,12 @@ export async function runAlerts(s: Scope, opts: { dryRun?: boolean; baseUrl: str
   const messages = formatAlerts(items, opts.baseUrl);
   const res: RunResult = { quiet, dryRun: !!opts.dryRun, sent: 0, messages, items };
   if (opts.dryRun || quiet) return res;
-  if (!due.length) return res; // claimed queue entries whose task closed meanwhile stay marked, so later flushes skip them
+  // The one Discord DM an alert run still sends: a Need that has waited over a day (reel messages go through lib/owner-alert.ts).
+  const needDmError = await dmOldNeeds(s, c0, profile, settings, opts.baseUrl, opts.now ?? new Date());
+  if (!due.length) return needDmError ? { ...res, error: needDmError } : res; // claimed queue entries whose task closed meanwhile stay marked, so later flushes skip them
 
-  // Deliver: inbox always; push and Discord if enabled. A failing channel doesn't block the others.
-  const errors: string[] = [];
+  // Deliver: inbox always; push if enabled. A failing channel doesn't block the others. Other alerts are never sent to Discord.
+  const errors: string[] = needDmError ? [needDmError] : [];
   if (items.length) {
     await addToInbox(s, items.map(i => ({ kind: i.kind, title: i.headline ?? `${KIND_TITLE[i.kind]}: #${i.ref} ${i.title}`, body: i.kind === 'digest' ? (i.detail ?? '') : i.headline ? i.title : (i.detail ?? ''), url: i.url ?? `/tasks/${i.ref}` })));
     if (settings.channels.push && pushConfigured()) {
@@ -621,23 +616,35 @@ export async function runAlerts(s: Scope, opts: { dryRun?: boolean; baseUrl: str
       );
       if (r.error) errors.push(`push: ${r.error}`);
     }
-    if (settings.channels.discord && discordConfig() && profile.discordId) {
-      try {
-        for (const m of messages) await sendDm(profile.discordId, m);
-        res.sent = messages.length;
-        // A Need can be answered right there: one small message per Need with its options as buttons (custom id
-        // wo:need:<id>:<option>, answered through the DM path of the interactions route). App-only Needs get none.
-        for (const i of items) if (i.kind === 'need' && i.needId && i.buttons?.length) await sendDm(profile.discordId, `🙋 **${i.label ?? "Need"}**: ${plainAlertText(i.title)}`.slice(0, 1900), needButtons(i.needId, i.buttons));
-        // The digest's own Needs (oldest first, at most 5; never app-only or review ones) get the same message and buttons.
-        for (const i of items) for (const n of i.digest?.needs ?? []) await sendDm(profile.discordId, `🙋 **${n.label}**: ${plainAlertText(n.title)}`.slice(0, 1900), needButtons(n.needId, n.buttons));
-      } catch (e) {
-        errors.push(`discord: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    }
   }
 
   // Queue entries and alertLog rows were claimed (marked) before delivery, so there is nothing left to record.
   return { ...res, ...(errors.length ? { error: errors.join('; ') } : {}) };
+}
+
+/** A Need waits over a day before its Discord DM (once per Need): the person may have missed the app and the phone. */
+const NEED_DM_AFTER_MS = 24 * 3_600_000;
+/** ...and only until two days: a Need older than that never gets the DM (switching Discord on must not send a burst of old Needs). */
+const NEED_DM_UNTIL_MS = 48 * 3_600_000;
+
+/**
+ * The DM for Needs that have waited over a day. Only for a person who linked Discord and has the Discord switch on; one message per
+ * Need, never repeated (the Need is marked first, so overlapping runs send once); no buttons: the answer is given in the app. Returns an error text or null.
+ */
+async function dmOldNeeds(s: Scope, c: Collections, profile: { discordId: string | null }, settings: { channels: { discord?: boolean }; kinds: Record<string, boolean | undefined> }, baseUrl: string, now: Date): Promise<string | null> {
+  if (!settings.channels.discord || settings.kinds.need === false || !discordConfig() || !profile.discordId) return null;
+  try {
+    const old = await c.needs.find({ to: s.userId, status: 'open', discordDmAt: { $exists: false }, createdAt: { $lte: new Date(now.getTime() - NEED_DM_AFTER_MS), $gt: new Date(now.getTime() - NEED_DM_UNTIL_MS) } }).sort({ createdAt: 1 }).limit(5).toArray();
+    for (const n of old) {
+      const claim = await c.needs.updateOne({ _id: n._id, discordDmAt: { $exists: false } }, { $set: { discordDmAt: now } });
+      if (claim.modifiedCount !== 1) continue;
+      const label = n.kind === 'review' ? `Review #${n.ref}` : `Need #${n.ref}`;
+      await sendDm(profile.discordId, `🙋 Waiting over a day: [${label}](<${baseUrl}/today#need-${n.ref}>) ${plainAlertText(shortAsk(n.ask))}`.slice(0, 1900));
+    }
+    return null;
+  } catch (e) {
+    return `discord: ${e instanceof Error ? e.message : String(e)}`;
+  }
 }
 
 /** Clear alert history older than 60 days (everyone's: the cron). */

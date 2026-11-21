@@ -40,6 +40,10 @@ if [ -n "$LIVE" ] && sudo -H -u "$BUILD_USER" git -C "$REPO" cat-file -e "$LIVE^
     echo "$CHANGED" | sed 's/^/    /'
   fi
 fi
+# The Discord listener's unit is not installed by a deploy (work-os-deploy only restarts it when it exists): say when it is missing.
+if [ ! -e /etc/systemd/system/work-os-discord.service ] && sudo -H -u "$BUILD_USER" git -C "$REPO" cat-file -e "$SHA:deploy/systemd/work-os-discord.service" 2>/dev/null; then
+  echo "  note: the Discord listener (deploy/systemd/work-os-discord.service) is not installed: copy it to /etc/systemd/system, daemon-reload, then 'systemctl enable --now work-os-discord' (docs/hosting.md section 6)"
+fi
 
 NAME="work-os-$SHORT.tar.gz"
 url() { echo "https://github.com/$GH_REPO/releases/download/$1/$2"; }

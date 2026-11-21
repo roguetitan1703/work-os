@@ -67,22 +67,17 @@ The bot DMs Om when work slips: due tomorrow (18:00, P1/P2), due today (09:00), 
 
 ## Discord (server "Delpat")
 
-No hosted bot, no gateway, nothing stored. Claude reads Discord on demand through MCP tools that call Discord's REST API with the bot token; commands arrive on `/api/discord/interactions` (signature-verified) and only the owner can use them. The bot never posts; its only output is ephemeral replies.
+A small listener (`deploy/discord-gateway.mjs`, the `work-os-discord` unit) hears the server live and hands each event to the app (`/api/discord/gateway`). Work OS has no slash commands and no message commands. People connect their Discord account in Settings › Notifications (Connect Discord, Discord's own sign-in, scope `identify`); the bot works from posts in a project's bug channel, the track emoji, and the buttons on its reply (Undo, Done, For). Its replies mention nobody.
 
-MCP tools (read-only, plus one write into Work OS):
+MCP tools (they read what the person's own Discord account can see; the only writes are one short reply under a message a task came from, and tasks):
 
 - `discord_needs_attention`: flagged-for-later items (your messages that tag the bot, with what you replied to), mentions of you/your roles/@everyone, replies to you, new activity in your threads; each marked handled if you posted after. Only channels active since the cutoff are read.
 - `discord_list_channels`: channels + active threads with last activity, filterable; unreadable ones listed separately.
-- `discord_read_messages`: messages from a channel/thread by time or around/before/after a message.
-- `discord_message_to_task`: create a task from a message (deduped by message id).
+- `discord_read_messages`: messages from a channel/thread by time or around/before/after a message, as compact rows (`links: true` gives jump links).
+- `discord_attachment`: one screenshot or PDF of a message (4 MB at most), as base64.
+- `discord_reply`: one line (140 characters) under the message a task came from; the first line on a bug-channel task replaces the bot's Recorded reply.
 
-Commands: right-click a message → Apps → **Add to Work OS**, `/task`, `/today`, `/done`, `/progress` (writes show in history as "You · Discord").
-
-Setup, invite URL, env vars and live status are on the app's `/connect` page. Env: `DISCORD_APPLICATION_ID`, `DISCORD_PUBLIC_KEY`, `DISCORD_BOT_TOKEN`, `DISCORD_GUILD_ID`, `DISCORD_OWNER_ID`. Register commands (guild-scoped) with:
-
-```bash
-curl -X POST https://<your-app>.vercel.app/api/admin/discord/register -H "Authorization: Bearer <MCP_TOKEN>"
-```
+Setup, invite URL, env vars and live status are in Settings › Notifications. Env: `DISCORD_APPLICATION_ID`, `DISCORD_PUBLIC_KEY`, `DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_SECRET` (Connect Discord). The OAuth redirect URL to add in the Developer Portal is `<APP_URL>/api/discord/connect/callback`. Details: docs/HANDOVER.md section 6 and docs/hosting.md.
 
 ## Health check
 

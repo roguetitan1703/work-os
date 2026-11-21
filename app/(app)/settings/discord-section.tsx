@@ -5,14 +5,14 @@ import { isOperator } from '@/lib/operator';
 import { getProfile } from '@/lib/profile';
 import { Card, Disclosure, Section, StatusLine } from './ui';
 import { BlockedChannels } from './blocked-channels';
-import { DiscordServerForm, TeamChannelForm } from './discord-link';
-import { teamChannelId } from '@/lib/team-digest';
+import { DiscordServerForm } from './discord-link';
 
-// View Channel (1<<10) + Read Message History (1<<16). Nothing else in the invite. The bot posts in one place only: the team digest, in the one channel an owner picks below, where that channel's own permissions must let it Send Messages. Everything else it does is private replies and DMs.
-const PERMISSIONS = String((1 << 10) | (1 << 16));
+// View Channel (1<<10), Send Messages (1<<11), Read Message History (1<<16), Manage Expressions (1<<30: it uploads the :wos: emoji once) and Send Messages in Threads (1<<38).
+// The bot answers under posts in the bug channels and under messages marked with the track emoji; it posts nowhere else.
+const PERMISSIONS = String((1n << 10n) | (1n << 11n) | (1n << 16n) | (1n << 30n) | (1n << 38n));
 
 // One bot for the whole deployment; each organization's server and each person's account are set in the app.
-const ENV = ['DISCORD_APPLICATION_ID', 'DISCORD_PUBLIC_KEY', 'DISCORD_BOT_TOKEN'] as const;
+const ENV = ['DISCORD_APPLICATION_ID', 'DISCORD_PUBLIC_KEY', 'DISCORD_BOT_TOKEN', 'DISCORD_CLIENT_SECRET'] as const;
 
 async function status(caller: Caller) {
   if (!discordConfig()) return { ok: false as const };
@@ -42,11 +42,10 @@ async function status(caller: Caller) {
 /** Settings › Server › Discord: how the bot is doing, the organization's server, sensitive channels, setup. (A person's own link is in Notifications.) */
 export async function DiscordSection({ base, caller }: { base: string; caller: Caller }) {
   const appId = process.env.DISCORD_APPLICATION_ID || '<APPLICATION_ID>';
-  const invite = `https://discord.com/oauth2/authorize?client_id=${appId}&scope=bot+applications.commands&permissions=${PERMISSIONS}&integration_type=0`;
+  const invite = `https://discord.com/oauth2/authorize?client_id=${appId}&scope=bot&permissions=${PERMISSIONS}&integration_type=0`;
   const [s, guildId] = await Promise.all([status(caller), orgGuildId(caller.orgId)]);
   const set = Object.fromEntries(ENV.map(k => [k, !!process.env[k]]));
   const operator = isOperator(caller);
-  const teamChannel = await teamChannelId(caller.orgId);
   const manages = caller.role === 'owner' || caller.role === 'admin';
 
   return (
@@ -56,11 +55,11 @@ export async function DiscordSection({ base, caller }: { base: string; caller: C
           {s.ok ? (
             <StatusLine
               level={s.contentIntent && s.linked ? 'ok' : 'warn'}
-              title={s.linked ? `Connected · ${s.readable} channels and ${s.threads} active threads readable` : 'Server connected · your account is not linked'}
+              title={s.linked ? `Connected · ${s.readable} channels and ${s.threads} active threads readable` : 'Server connected · your account is not connected'}
             >
               {s.linked && (
                 <p>
-                  You are {s.ownerName}{s.inServer ? '' : ' (not found on the server)'}. Work OS shows you only the channels your Discord account can see.{' '}
+                  You are {caller.name || caller.email}{s.inServer ? '' : ' (not found on the server)'}. Work OS shows you only the channels your Discord account can see.{' '}
                   {s.blockedCount ? `${s.blockedCount} channels blocked as sensitive.` : 'No channels blocked as sensitive yet.'}
                 </p>
               )}
@@ -91,20 +90,9 @@ export async function DiscordSection({ base, caller }: { base: string; caller: C
         <Section title="Organization's Discord server">
           <Card>
             <p className="text-[13px] text-muted-foreground mb-2">
-              Only you, the operator, see this. One server per organization; commands registered there act for whoever linked their account.
+              Only you, the operator, see this. One server per organization; people connect their own account in Settings › Notifications.
             </p>
             <DiscordServerForm guildId={guildId} />
-          </Card>
-        </Section>
-      )}
-
-      {guildId && (operator || caller.role === 'owner') && (
-        <Section title="Team digest">
-          <Card>
-            <p className="text-[13px] text-muted-foreground mb-2">
-              Once a day at 09:00 the bot posts one message in this channel: for each project shared with everyone, what was done yesterday, its Now and who it waits on. Private projects and projects shared with chosen people are never in it. The bot needs permission to send messages there. Empty turns it off.
-            </p>
-            <TeamChannelForm channelId={teamChannel} />
           </Card>
         </Section>
       )}
@@ -124,7 +112,7 @@ export async function DiscordSection({ base, caller }: { base: string; caller: C
       <Section title="Setup and use">
         <div className="space-y-3">
           {
-            <Disclosure title="Setup and registration" hint="Developer Portal, invite, env vars, server, commands" open={!s.ok}>
+            <Disclosure title="Setup and registration" hint="Developer Portal, invite, env vars, server, listener" open={!s.ok}>
               <ol className="list-decimal pl-5 space-y-3 text-sm text-foreground/90">
                 <li>
                   <b>Developer Portal → your app → Bot</b>: under <i>Privileged Gateway Intents</i> turn on <b>Message Content Intent</b> (otherwise message text
@@ -136,24 +124,29 @@ export async function DiscordSection({ base, caller }: { base: string; caller: C
                   <CopyBox text={`${base}/api/discord/interactions`} className="mt-2" />
                 </li>
                 <li>
-                  <b>Invite the bot</b> to the organization&apos;s server with exactly View Channels + Read Message History and the <code>applications.commands</code> scope:
+                  <b>Invite the bot</b> to the organization&apos;s server with exactly View Channels, Send Messages, Send Messages in Threads, Read Message History and Manage Expressions:
                   <CopyBox text={invite} className="mt-2" />
                   <span className="text-xs text-muted-foreground">For private channels you want read, add the bot (or its role) to that channel.</span>
                 </li>
                 <li>
                   <b>Env vars</b> (then redeploy): <code>DISCORD_APPLICATION_ID</code> and <code>DISCORD_PUBLIC_KEY</code> (General Information),{' '}
-                  <code>DISCORD_BOT_TOKEN</code> (Bot → Reset Token).
+                  <code>DISCORD_BOT_TOKEN</code> (Bot → Reset Token), <code>DISCORD_CLIENT_SECRET</code> (OAuth2 → Client Secret; people connect their account with it). Under
+                  OAuth2 → Redirects add this URL:
+                  <CopyBox text={`${base}/api/discord/connect/callback`} className="mt-2" />
                 </li>
                 <li>
                   <b>Server</b>: Discord → User Settings → Advanced → turn on <b>Developer Mode</b>, right-click the server icon → <i>Copy Server ID</i>, and save it
                   above.
                 </li>
                 <li>
-                  <b>Register the commands</b> in this organization&apos;s server (they appear instantly). Run once, and again whenever commands or the organization&apos;s
-                  modes change:
+                  <b>Clear the old commands</b> once, if an earlier version registered some in this organization&apos;s server (Work OS has none now):
                   <CopyBox text={`curl -X POST "${base}/api/admin/discord/register?org=${caller.orgId}" -H "Authorization: Bearer <your key>"`} className="mt-2" />
                 </li>
-                <li>Each person then links their own account in Settings › Notifications.</li>
+                <li>
+                  <b>The live listener</b> (<code>work-os-discord</code>, deploy/systemd) keeps one connection to Discord and passes posts and reactions to Work OS. See
+                  docs/hosting.md.
+                </li>
+                <li>Each person then connects their own account in Settings › Notifications.</li>
               </ol>
             </Disclosure>
           }

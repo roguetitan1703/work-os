@@ -117,18 +117,11 @@ export function entryPoints() {
   const mcp = 'lib/mcp/server.ts';
   for (const m of read(mcp).matchAll(/\btool\(\s*'([a-z_]+)'/g)) add('mcp', m[1], mcp);
 
-  // Discord: commands registered per server, what the interactions route and handleInteraction answer, autocompletes
-  // and the buttons, select and modal of an "Added" reply.
-  const dc = 'lib/discord/commands.ts';
-  const dsrc = read(dc);
-  const defs = dsrc.slice(dsrc.indexOf('Command definitions'), dsrc.indexOf('// ── Helpers'));
-  for (const m of defs.matchAll(/^\s*(?:\{\s*)?type: [13],\s*(?:\n\s*)?name: '([^']+)'/gm)) add('discord', `command ${m[1]}`, dc);
-  for (const m of dsrc.matchAll(/focused\.name === '([a-z_]+)'/g)) add('discord', `autocomplete ${m[1]}`, dc);
-  const comp = dsrc.match(/\^wo:\(([a-z|]+)\)/)?.[1] ?? '';
-  for (const k of comp.split('|').filter(Boolean)) add('discord', `component ${k}`, dc);
-  // Handled names must all be registered (and the other way round): a handler with no registration is still reachable
-  // by a crafted interaction.
-  for (const m of dsrc.matchAll(/(?<!focused\.)\bname === '([^']+)'/g)) if (!out.some(e => e.id === `discord command ${m[1]}`)) add('discord', `command ${m[1]} (handled, not registered)`, dc);
+  // Discord: no commands any more. The buttons and the select under the bot's Recorded reply (lib/discord/buttons.ts) are the only
+  // interactions: each custom id family is one entry the leak audit must cover.
+  const bsrc = read('lib/discord/buttons.ts');
+  const comp = bsrc.match(/RECORDED_PRESS = \/\^wo:\(([a-z|]+)\)/)?.[1] ?? '';
+  for (const k of comp.split('|').filter(Boolean)) add('discord', `component ${k}`, 'lib/discord/buttons.ts');
 
   return out;
 }

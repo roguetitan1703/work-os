@@ -21,8 +21,10 @@ import { serverInstructions, STATE_COPY, TOOLS, UNMATCHED_HINT, type Instruction
 import { beforeTool, callerScope, checkBatch, notifyChanges, PolicyError, watchTarget, watchTasks, type Caller, type WatchTarget } from './policy';
 import { actorOut, agentActor } from '../actors';
 import { memberNames } from '../people';
+import { recordToolCall } from '../usage';
 import { discordLinkOf } from '../profile';
 import * as discord from '../discord/read';
+import { replyOnDiscord } from '../discord/reply';
 import { BlockedChannelError, DiscordError, NotVisibleError } from '../discord/client';
 import * as mail from '../mail/tools';
 import { MailError } from '../mail/client';
@@ -726,7 +728,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
   const discordGate = async () => {
     const link = await discordLinkOf(s);
     if (!link) throw new InputError('Your organization has no Discord server connected to Work OS.');
-    if (!link.discordId) throw new InputError('Link your Discord account first: Work OS Settings › Connections, then /link <code> on the server.');
+    if (!link.discordId) throw new InputError('Connect your Discord account first: Work OS Settings › Notifications, Connect Discord.');
     return link;
   };
   /** Mail tools act as the caller only: their scope picks their own Mailloom key. The session id goes into Mailloom's audit log. */
@@ -765,6 +767,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
           console.error('[mcp policy]', err);
           return fail('Internal error');
         }
+        void recordToolCall(name); // how often each tool is called, per hour (Usage)
         // A dispatched run's own key (lib/run-keys.ts) acts only as its own sessions: a session id (argument of any tool, or the
         // header) that names another session of the person (their lead session, say) is refused.
         if (caller.dispatched) {
@@ -947,6 +950,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const open = t.subtaskCount ? await tasks.listSubtasks(s, t.id, { open: true }) : [];
       return {
         completed: await brief(t, ctx),
+        ...(t.source?.kind === 'discord' ? { discordReminder: `#${t.ref} came from Discord: say so there with discord_reply { task: ${t.ref}, text: "<one short line>" }.` } : {}),
         ...(next ? { nextOccurrence: await brief(next, ctx) } : {}),
         ...(open.length ? { openSubtasks: await Promise.all(open.map(k => brief(k, ctx))), note: `${open.length} subtask${open.length === 1 ? ' is' : 's are'} still open: they were left as they are. Complete or drop them if they are finished.` } : {}),
       };
@@ -2017,7 +2021,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     }),
   );
 
-  // ── Discord (read-only; the bot never posts) ──────────────────────────────
+  // ── Discord (read, and one short reply line under a message a task came from; discord_reply) ──────────────
 
   tool(
     'discord_needs_attention',
@@ -2053,42 +2057,39 @@ export function createMcpServer(ctx: Ctx): McpServer {
         after: z.string().optional().describe('Message id'),
         around: z.string().optional().describe('Message id'),
         limit: z.number().int().min(1).max(300).optional().describe('Default 50 (max 100 without since)'),
+        links: z.boolean().optional().describe('true: the full shape (jump links, mentions, thread info) instead of compact rows'),
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     handler(async a => {
-      return discord.readMessages(await discordGate(), { channel: a.channel, since: parseSince(a.since), before: a.before, after: a.after, around: a.around, limit: a.limit });
+      return discord.readMessages(await discordGate(), { channel: a.channel, since: parseSince(a.since), before: a.before, after: a.after, around: a.around, limit: a.limit, links: a.links === true });
     }),
   );
 
   tool(
-    'discord_message_to_task',
+    'discord_attachment',
     {
       inputSchema: {
         message_link: z.string().optional().describe('Discord jump link to the message'),
         channel: z.string().optional().describe('Alternative to message_link: channel name or id'),
         message_id: z.string().optional(),
-        title: z.string().optional().describe('Short, verb-first title; drafted from the message if omitted'),
-        project: z.string().nullable().optional().describe('An existing project name or id; an unknown name is refused unless create_project is true'),
-        create_project: z.boolean().optional().describe('true: make a new project of that name when it does not exist'),
-        mode: ModeSchema.nullable().optional(),
-        priority: PrioritySchema.optional(),
-        due: dateArg.nullable().optional().describe('Only if the message states a date'),
-        note: z.string().optional().describe('Why this became a task; stored in history'),
+        index: z.number().int().min(1).describe('The number in brackets from discord_read_messages: [1] is the first file'),
       },
-      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    handler(async a => {
-      const link = await discordGate();
-      const r = await discord.messageToTask(
-        s,
-        link,
-        { link: a.message_link, channel: a.channel, messageId: a.message_id },
-        { title: a.title, project: a.project, mode: a.mode, priority: a.priority, due: a.due, note: a.note, createProject: a.create_project === true ? undefined : false },
-        ACTOR,
-      );
-      return { [r.existing ? 'alreadyTracked' : 'created']: await brief(r.task, ctx), message: r.message };
-    }),
+    handler(async a => discord.attachment(await discordGate(), { link: a.message_link, channel: a.channel, messageId: a.message_id }, a.index)),
+  );
+
+  tool(
+    'discord_reply',
+    {
+      inputSchema: {
+        task: z.number().int().min(1).describe('The task number (#N) of a task that came from Discord'),
+        text: z.string().min(1).max(400).describe('One short line (140 characters at most), plain words'),
+      },
+      annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    handler(async a => replyOnDiscord(s, await discordGate(), a.task, a.text)),
   );
 
   // ── Mail (the person's own mailbox in Mailloom, through their own key) ──────

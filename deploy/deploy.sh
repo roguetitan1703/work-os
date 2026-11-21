@@ -356,6 +356,10 @@ if ! live; then
   exit 1
 fi
 echo "live: ${SHA:0:12}"
+# The Discord live listener runs this release's deploy/discord-gateway.mjs: restart it onto the new release (only if installed).
+if systemctl cat work-os-discord >/dev/null 2>&1; then
+  systemctl restart work-os-discord || echo "  note: work-os-discord did not restart (journalctl -u work-os-discord)" >&2
+fi
 
 # Healthy: remember the commit that was live before (for --rollback) and keep only this release on disk.
 OLD_SHA="$(cat "$OLD/REVISION" 2>/dev/null || true)"

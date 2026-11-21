@@ -20,6 +20,7 @@ export function isMine(a: unknown, me: string): boolean {
   if (special(a)) return false;
   const x = asActor(a);
   if (x.kind === 'system') return true;
+  if (x.kind === 'discord' && !x.userId) return false; // someone on Discord with no Work OS link: never the reader's own words
   return !('userId' in x) || !x.userId || x.userId === me;
 }
 
@@ -57,7 +58,7 @@ export function authorLabel(a: unknown, people: Record<string, string>): string 
     case 'agent':
       return `${x.agent === 'claude' ? 'Claude' : 'Claude Code'} acting for ${teammate(x.userId)}`;
     case 'discord':
-      return x.userId ? `${teammate(x.userId)} (through Discord)` : 'Discord';
+      return x.userId ? `${teammate(x.userId)} (through Discord)` : x.name && cleanName(x.name) ? `Discord user "${cleanName(x.name)}"` : 'Discord';
     default:
       return 'Work OS';
   }

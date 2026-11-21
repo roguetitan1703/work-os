@@ -167,12 +167,8 @@
     "px": 13,
     "btn": 5
   },
-  "app/(app)/settings/discord-link.tsx": {
-    "px": 0,
-    "btn": 4
-  },
   "app/(app)/settings/discord-section.tsx": {
-    "px": 3,
+    "px": 2,
     "btn": 0
   },
   "app/(app)/settings/dismiss-notice.tsx": {

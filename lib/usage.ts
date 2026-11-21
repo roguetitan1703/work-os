@@ -46,6 +46,9 @@ const ROUTE_LIST: [string, string][] = [
   ['/api/stream', '/api/stream'],
   ['/api/cron/alerts', '/api/cron/alerts'],
   ['/api/discord/interactions', '/api/discord/interactions'],
+  ['/api/discord/gateway', '/api/discord/gateway'],
+  ['/api/discord/connect', '/api/discord/connect'],
+  ['/api/discord/connect/callback', '/api/discord/connect/callback'],
   ['/api/admin/health', '/api/admin/health'],
   ['/api/admin/discord/register', '/api/admin/discord/register'],
   ['/api/notes/file', '/api/notes/file'],
@@ -96,6 +99,7 @@ export function requestCaller(pathname: string, h: Headers, url: URL, auth: { se
   if (pathname.startsWith('/api/worker') || pathname === '/api/agent/start') return hasKey(h) ? 'worker' : 'anonymous'; // the hook signs in with the worker's key
   if (pathname.startsWith('/api/cron')) return hasKey(h) ? 'cron' : 'anonymous';
   if (pathname.startsWith('/api/discord/interactions')) return h.has('x-signature-ed25519') ? 'discord' : 'anonymous';
+  if (pathname.startsWith('/api/discord/gateway')) return hasKey(h) ? 'discord' : 'anonymous';
   if (pathname.startsWith('/api/intake/')) return hasKey(h) ? 'intake' : 'anonymous';
   if (auth.session) return 'browser';
   if (auth.token) return 'mcp';
@@ -129,6 +133,22 @@ async function flush(batch: Map<string, Map<string, number>>): Promise<void> {
     );
   } catch {
     // counting must never affect a request
+  }
+}
+
+/**
+ * Count one MCP tool call: `counts['mcp-tool|<name>']` in the hour's bucket (the tool's name is a fixed word, nothing the caller typed). It
+ * is not a request, so the bucket's `total` does not move, and the reader (lib/data/usage.ts) skips keys of this shape. Never throws.
+ */
+export async function recordToolCall(name: string, now = new Date()): Promise<void> {
+  if (!/^[a-z_]{1,64}$/.test(name)) return;
+  try {
+    const { getDb } = await import('./db');
+    const db = await getDb(); // scope-ok: tool call counters: operational, no work data
+    const hour = hourKey(new Date(Math.floor(now.getTime() / HOUR) * HOUR));
+    await db.collection<{ _id: string }>('requestStats').updateOne({ _id: hour }, { $inc: { [`counts.mcp-tool|${name}`]: 1 }, $setOnInsert: { at: new Date(`${hour}:00:00Z`) } }, { upsert: true }); // scope-ok: tool call counters: operational, no work data
+  } catch {
+    // counting must never affect a call
   }
 }
 

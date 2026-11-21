@@ -1,0 +1,40 @@
+# The Discord live listener (docs/HANDOVER.md section 6): connects to Discord's gateway as the bot and relays new posts and
+# reactions to the app on localhost (deploy/discord-gateway.mjs). Install next to the others:
+#   sudo cp /srv/work-os/repo/deploy/systemd/work-os-discord.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now work-os-discord
+# Logs: journalctl -u work-os-discord -f. Without DISCORD_BOT_TOKEN in /etc/work-os/env it says so and stops.
+# The release's deploy/ folder is the script (work-os-deploy restarts this unit after switching releases).
+[Unit]
+Description=Work OS Discord listener
+After=network-online.target work-os.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=workos
+Group=workos
+WorkingDirectory=/srv/work-os/current
+EnvironmentFile=/etc/work-os/env
+Environment=NODE_ENV=production
+# Small: one socket and a queue of events (the app does the work).
+Environment=NODE_OPTIONS=--max-old-space-size=64
+MemoryHigh=80M
+MemoryMax=120M
+ExecStart=/opt/work-os/node/bin/node /srv/work-os/current/deploy/discord-gateway.mjs
+# Exit 0 (no token) is not restarted; a crash or a refused login is, slowly.
+Restart=on-failure
+RestartSec=10
+KillSignal=SIGTERM
+TimeoutStopSec=10
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target
