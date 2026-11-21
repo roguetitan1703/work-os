@@ -57,11 +57,14 @@ export async function sessionStart(input) {
   // time left (hooks review M7: on Windows that is a PowerShell call).
   const sid = input.session_id;
   // A resume has a new process, so its pair is written again; the same pid keeps the pair (with its start time) the .proc file has.
-  if (sid && !(readProc(sid) && readProc(sid).pid === quickProcess()?.pid)) keepProc(sid, quickProcess);
+  const quick = sid ? quickProcess() : null;
+  if (sid && quick && !(readProc(sid) && readProc(sid).pid === quick.pid)) keepProc(sid, quickProcess);
   // The server links a /clear to its session by (pid, start time), and only a sign-in or renew carries them: the start time (on Windows a
   // PowerShell call) is taken BEFORE the sign-in when time allows, so the first start already sends the full pair.
-  if (sid && !readProc(sid)?.procStart && withinDeadline(8000) > 4000) keepProc(sid);
-  const sentFull = !!(sid && readProc(sid)?.procStart);
+  // No CLAUDE_PID (quick is null): an old .proc file may name a dead process, so the full lookup always runs.
+  let fullDone = false;
+  if (sid && (!quick || !readProc(sid)?.procStart) && withinDeadline(8000) > 4000) fullDone = !!keepProc(sid)?.procStart;
+  const sentFull = !!(sid && (quick ? readProc(sid)?.procStart : fullDone));
   try {
     return await startBrief(input);
   } finally {

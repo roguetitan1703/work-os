@@ -184,12 +184,15 @@ const flat = (p) => { const x = real(p).replace(/\\/g, '/').replace(/\/+$/, '');
  * same for the main worktree (a worktree of a linked repo falls through to the repo), at most 8. [] when this copy is not
  * installed beside a worker or the worker has not scanned. The server takes the first one linked on this computer.
  */
-export function folderCandidates(cwd) {
+export function folderCandidates(cwd) { return folderCandidatesOrNull(cwd) || []; }
+
+/** Like folderCandidates, but null when the folders are unknown (no worker, state.json missing or invalid) and [] when they are known and none contains `cwd`. */
+export function folderCandidatesOrNull(cwd) {
   const home = workerHome();
-  if (!home) return [];
+  if (!home) return null;
   let folders = null;
-  try { folders = JSON.parse(fs.readFileSync(path.join(home, 'state.json'), 'utf8')).folders; } catch { return []; }
-  if (!folders || typeof folders !== 'object') return [];
+  try { folders = JSON.parse(fs.readFileSync(path.join(home, 'state.json'), 'utf8')).folders; } catch { return null; }
+  if (!folders || typeof folders !== 'object') return null;
   const list = Object.entries(folders).filter(([id, p]) => FOLDER_ID_RE.test(id) && typeof p === 'string' && p).map(([id, p]) => [id, flat(p)]);
   const containing = (dir) => {
     const d = flat(dir);
@@ -667,7 +670,7 @@ export async function renewToken(sid, { timeoutMs = 1500, fallback = null } = {}
 export function elsewhereHere(m, cwd) {
   if (!m?.elsewhere) return false;
   const ids = Array.isArray(m.projectFolders) ? m.projectFolders : [];
-  const here = folderCandidates(cwd);
-  if (!here.length) return false; // state.json unreadable (or no folder known): never skip in the project's own repo
+  const here = folderCandidatesOrNull(cwd);
+  if (!here) return false; // state.json unreadable (folders unknown): never skip; an empty list is a readable "no folder contains cwd" and skips
   return !here.some((id) => ids.includes(id));
 }

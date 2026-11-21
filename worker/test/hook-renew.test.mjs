@@ -9,7 +9,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wos-hook-renew-'));
@@ -348,6 +348,30 @@ test('/clear after a startup links to the same session: both starts carry the sa
   assert.equal(a.body.proc.procStart, b.body.proc.procStart);
 });
 
+test('no CLAUDE_PID and a stale .proc file: the full lookup runs and replaces the dead process\'s pair before the sign-in', async () => {
+  reset();
+  // A copy of node named claude is the session's process; it runs the hook as its child, with CLAUDE_PID unset.
+  const fake = path.join(tmp, process.platform === 'win32' ? 'claude.exe' : 'claude');
+  fs.copyFileSync(process.execPath, fake);
+  const hookJs = pathToFileURL(path.join(home, 'hooks', 'hook-session-start.mjs')).href;
+  const child = path.join(tmp, 'child.mjs');
+  fs.writeFileSync(child, `const ss = await import(${JSON.stringify(hookJs)}); await ss.sessionStart({ session_id: ${JSON.stringify(SID)}, cwd: ${JSON.stringify(proj)}, transcript_path: ${JSON.stringify(transcript)}, source: 'startup' });`);
+  const parent = path.join(tmp, 'parent.mjs');
+  fs.writeFileSync(parent, `import { spawnSync } from 'node:child_process'; spawnSync(process.argv[0].replace(/[^\\/]*$/, '') + '' || process.execPath, []); `);
+  const runner = path.join(tmp, 'runner.mjs');
+  fs.writeFileSync(runner, `import { spawnSync } from 'node:child_process'; const r = spawnSync(${JSON.stringify(process.execPath)}, [${JSON.stringify(child)}], { stdio: 'inherit', env: process.env }); process.exit(r.status ?? 1);`);
+  fs.mkdirSync(path.join(home, 'hooks', 'sessions'), { recursive: true });
+  fs.writeFileSync(path.join(home, 'hooks', 'sessions', `${SID}.proc`), JSON.stringify({ pid: 999999, procStart: '1' }));
+  const env = { ...process.env };
+  delete env.CLAUDE_PID;
+  const code = await new Promise((res) => spawn(fake, [runner], { env, stdio: 'ignore' }).on('exit', res));
+  assert.equal(code, 0);
+  // (the child has no device key here, so no sign-in; the .proc file is what the sign-in or renew would send)
+  const kept = lib.readProc(SID);
+  assert.ok(kept, 'a pair is kept');
+  assert.notEqual(kept.pid, 999999, 'a dead pair is replaced');
+});
+
 test('no time for the start time before the sign-in: the pair goes with a renew right after the start', async () => {
   if (process.platform !== 'win32' && process.platform !== 'darwin') return;
   reset();
@@ -361,6 +385,17 @@ test('no time for the start time before the sign-in: the pair goes with a renew 
   assert.equal(sent.length, 2);
   assert.equal(sent[1].body.renew, true);
   assert.equal(sent[1].body.proc.procStart, lib.readProc(SID).procStart, 'the renew carries the full pair');
+});
+
+test('elsewhere, state.json readable, cwd outside every folder: the copy and the Stop check are skipped; inside the project folder they are not', async () => {
+  reset();
+  const m = { elsewhere: true, projectFolders: ['fldProj01'] };
+  const outside = path.join(tmp, 'nowhere-repo');
+  fs.mkdirSync(outside, { recursive: true });
+  sh(outside, 'init', '-q', '-b', 'main');
+  assert.equal(lib.elsewhereHere(m, outside), true, 'outside all folders: skip');
+  assert.equal(lib.elsewhereHere(m, proj), false, 'inside P: no skip');
+  assert.equal(lib.elsewhereHere(m, other), true, 'another known folder: skip');
 });
 
 test('elsewhere with no folder known (state.json unreadable): never skip, so the copy and the Stop check run in the project\'s own repo', async () => {
