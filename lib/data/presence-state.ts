@@ -14,6 +14,7 @@ import type { PresenceState } from '../db';
 //                            subagent's call before the gate, must not keep a session working for ever); after that the rules above apply. Any later event (tool, stop, end, prompt, notify) replaces activity and clears open.
 //   waiting at a prompt   -> waiting (why: prompt) while alive, else off
 //   on / idle             -> an open Need makes it waiting (why: need); else on / idle while alive, else off
+// A row with no `activity` and hook protocol 3 or more is idle while alive (never Working); the daemon's 'running' only keeps it from off.
 // A row with no `activity` (claude.ai chat, API, an old hook, a WORK_OS_KEY hook) keeps the call-based rules:
 //   off after 30 quiet minutes unless the daemon says it runs; an open Need -> waiting; seen in the last 10 minutes
 //   -> working, else idle.
@@ -30,6 +31,8 @@ export type StateRow = {
   lastSeen: Date;
   activity?: { state: PresenceState; at: Date; why?: 'prompt' | 'question'; open?: boolean } | null;
   endedAt?: Date | null;
+  /** The hook protocol the session signed in with (presence.hook). From 3 on, a hook row with no activity is idle, never Working. */
+  hook?: number;
 };
 
 export type StateResult = { state: PresenceState; /** Only for waiting. */ why?: 'need' | 'prompt' | 'question'; /** When the state began: activity.at, else lastSeen. */ since: Date };
@@ -43,6 +46,8 @@ export function presenceState(row: StateRow, o: { now: number; daemon?: DaemonSa
     const ageMin = (o.now - row.lastSeen.getTime()) / 60_000;
     if (ageMin > GONE_MIN && daemon !== 'running') return { state: 'off', since };
     if (o.needs) return { state: 'waiting', why: 'need', since };
+    // A row of a current hook (3 and up) reports its work as events: with none it is open but idle, whatever its last call was.
+    if ((row.hook ?? 0) >= 3) return { state: 'idle', since };
     return { state: ageMin <= WORKING_MIN ? 'working' : 'idle', since };
   }
   const ageMin = (o.now - a.at.getTime()) / 60_000;

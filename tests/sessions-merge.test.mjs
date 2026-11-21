@@ -48,3 +48,12 @@ test('state words: waiting on your prompt, a closed row is off, a trust prompt s
   assert.equal(v.finished.find(i => i.id === 'd1:c').state, 'off');
   assert.match(v.live.find(i => i.id === 'd1:t').word, /trust this new repo on Om-PC/);
 });
+
+test('three rows of one Claude session with the daemon reporting subagents: exactly one Working', () => {
+  const idle = id => worker(id, { cc: 's1', state: 'idle', subagents: 0 });
+  const v = mergeSessions([idle('a'), idle('b'), worker('c', { cc: 's1', state: 'idle', subagents: 2 })], [row('d1:s1', { subagents: 2 })], { tz, now });
+  assert.equal(v.live.filter(i => i.state === 'working').length, 1);
+  assert.equal(v.live.find(i => i.id === 'a').subagents, 2);
+  assert.equal(v.live.find(i => i.id === 'b').subagents, 0);
+  assert.equal(v.live.find(i => i.id === 'c').subagents, 0);
+});

@@ -49,3 +49,14 @@ test('waiting rules are unchanged by open', () => {
   const r = { lastSeen: ago(15), activity: { state: 'waiting', at: ago(15), why: 'prompt', open: true } };
   assert.equal(presenceState(r, { now }).state, 'waiting');
 });
+
+test('a hook 3 row with no activity is idle, even seen a minute ago or with the daemon running; hook 2 keeps the call-based rule', () => {
+  const bare = (h) => ({ lastSeen: ago(1), ...(h === undefined ? {} : { hook: h }) });
+  assert.equal(presenceState(bare(3), { now }).state, 'idle');
+  assert.equal(presenceState(bare(4), { now, daemon: 'running' }).state, 'idle');
+  assert.equal(presenceState(bare(2), { now }).state, 'working');
+  assert.equal(presenceState(bare(), { now }).state, 'working');
+  assert.equal(presenceState(bare(3), { now, needs: true }).state, 'waiting');
+  assert.equal(presenceState({ lastSeen: ago(40), hook: 3 }, { now }).state, 'off');
+  assert.equal(presenceState({ lastSeen: ago(40), hook: 3 }, { now, daemon: 'running' }).state, 'idle');
+});

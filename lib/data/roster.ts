@@ -131,7 +131,21 @@ async function loadRaw(s: Scope, hours: number, projectId?: string): Promise<Raw
       }
     }
   }
-  return rows.map(row => ({ row, daemon: (ccOf(row) && says.get(`${row.machine}:${ccOf(row)}`)) || 'unknown', subagents: (ccOf(row) && subs.get(`${row.machine}:${ccOf(row)}`)) || 0 }));
+  // Several rows can share one Claude session (a project move, a restart). The daemon's 'running' and its subagents belong to the
+  // newest open row only (rows are newest first); the older ones are judged by their own events. 'stopped' still ends them all.
+  const taken = new Set<string>();
+  return rows.map(row => {
+    const k = ccOf(row) ? `${row.machine}:${ccOf(row)}` : '';
+    let daemon: DaemonSays = (k && says.get(k)) || 'unknown';
+    let subagents = (k && subs.get(k)) || 0;
+    if (k && !row.endedAt) {
+      if (taken.has(k)) {
+        if (daemon === 'running') daemon = 'unknown';
+        subagents = 0;
+      } else taken.add(k);
+    }
+    return { row, daemon, subagents };
+  });
 }
 
 /** The kind of client, for people who are not the key's owner (a key's name is its owner's own label). */
