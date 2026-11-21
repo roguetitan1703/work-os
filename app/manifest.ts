@@ -13,13 +13,13 @@ export default function manifest(): MetadataRoute.Manifest {
     background_color: '#000000',
     theme_color: '#000000',
     icons: [
-      { src: '/icons/192', sizes: '192x192', type: 'image/png', purpose: 'any' },
-      { src: '/icons/512', sizes: '512x512', type: 'image/png', purpose: 'any' },
-      { src: '/icons/maskable-512', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+      { src: '/icons/192?v=2', sizes: '192x192', type: 'image/png', purpose: 'any' },
+      { src: '/icons/512?v=2', sizes: '512x512', type: 'image/png', purpose: 'any' },
+      { src: '/icons/maskable-512?v=2', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
     ],
     shortcuts: [
-      { name: 'New task', url: '/today?add=1', icons: [{ src: '/icons/192', sizes: '192x192' }] },
-      { name: 'Notes', url: '/notes', icons: [{ src: '/icons/192', sizes: '192x192' }] },
+      { name: 'New task', url: '/today?add=1', icons: [{ src: '/icons/192?v=2', sizes: '192x192' }] },
+      { name: 'Notes', url: '/notes', icons: [{ src: '/icons/192?v=2', sizes: '192x192' }] },
     ],
   };
 }

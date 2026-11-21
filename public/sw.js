@@ -1,6 +1,6 @@
 // Work OS service worker: makes the app installable and keeps a usable shell offline.
 // Pages are network-first (data is live); built assets are cache-first; offline shows /offline.html.
-const VERSION = 'v2';
+const VERSION = 'v3'; // v3: new app icon (21 Nov); a new version drops the old icon cache
 const STATIC = `static-${VERSION}`;
 const PAGES = `pages-${VERSION}`;
 
