@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { verifyDeviceKey, DEVICE_KEY_PREFIX } from '@/lib/devices';
-import { AGENT_TOKEN_PREFIX, createAgentSession, dispatchedOfToken, endUnfiledSession, dispatchedSession, projectOnDevice } from '@/lib/agent-sessions';
+import { AGENT_TOKEN_PREFIX, createAgentSession, dispatchedOfToken, dispatchedSession, endRowsElsewhere, endRowsOnOtherDevices, findIdentity, identityById, projectFolderIds, projectOnDevice, projectRemotes, touchIdentity } from '@/lib/agent-sessions';
+import { normalizeRemote } from '@/lib/data/code-locations';
 import { agentReply as reply, agentUnauthorized as unauthorized, authAgentToken, bearerOf as bearer, readCapped } from '@/lib/agent-auth';
 import { roleOf } from '@/lib/caller';
 import { reserveAgent } from '@/lib/mcp/policy';
@@ -18,20 +19,29 @@ import type { Scope } from '@/lib/scope';
 // POST /api/agent/start, JSON body { folders?, remote?, subdir?, branch?, path?, machine?, label?, model? } (the folder the
 // Claude Code session runs in: the worker folder ids that contain it decide the project, H13; remote, subdir and branch are
 // information only: a body without folders finds no project). title, aiTitle, tool and model (protocol 3) name the session on the roster.
-//   Authorization: Bearer wkr_…  the PC's worker device key: opens a new session on the project of that folder, only
-//                                when a folder on that PC is linked to the project (projectOnDevice; a folder's remote
-//                                alone never counts, the worker reports it itself). Answers the start brief and
-//                                a session token (wst_…), the only time the token is sent.
-//   Authorization: Bearer wst_…  that session token (after a compaction): the same session's brief again, for its own
-//                                project only.
+//   Authorization: Bearer wkr_…  the PC's worker device key: signs the Claude Code session in. A session is (person, computer, Claude Code
+//                                session) and has ONE id for good: the server finds its record by ccSession (or, for a /clear, by proc),
+//                                else makes it. Answers the start brief and a new session token (wst_…), the only time that token is sent;
+//                                a sign-in never deletes another token (two windows). The folder decides the project:
+//                                  1. a folder linked on this PC to project Q: the session is on Q (same id, even if it was on P or on none);
+//                                  2. no such folder and the session has project P: it stays on P and the answer says elsewhere: true with
+//                                     projectFolders (the worker folder ids of P on this PC); no Where and no folder key are written;
+//                                  3. no such folder and no project: unfiled (protocol 3: a token that opens only event and wait; older: 404).
+//                                An older hook (protocol 3 or less) stays on P from a foreign folder only when it names no remote or one of
+//                                P's remotes; otherwise it is unfiled.
+//   Authorization: Bearer wst_…  that session token (after a compaction): the same session's brief again, the same way.
+//   Body { renew: true, ccSession, proc? } with the device key: a hook whose token ran out gets a new token for the existing session and nothing
+//                                else: no brief, folders ignored, the project never changed. 200 { token, expiresAt, session } · 404 no record
+//                                for this Claude Code session on this PC. Its own limit (AGENT_PER_HOUR.renew per PC and Claude Code session).
 // Nothing else opens it: no Work OS API key, no OAuth token, no session cookie, no X-API-Key. The device's owner must
-// still be a member of its organization on every call. Rate limited per computer (new sessions) and per session (briefs),
+// still be a member of its organization on every call. Rate limited per computer (sign-ins) and per session (briefs),
 // lib/mcp/policy.ts AGENT_PER_HOUR. The token never goes into the brief, the database or the log.
 // Body also takes head, dirty and worktrees (Where, written without a State version bump), ccSession (Claude Code's own session
-// UUID, kept on the presence row only to join the worker's session list; never shown) and source (startup, resume, clear, compact:
-// the session is then on, or working after a compaction). The row's machine is the device itself, whatever hostname the body names. The X-Work-OS-Hook header marks the
-// hook's protocol (new hooks send 2; none means 1, which still gets the copy in save answers).
-//   200 { brief, token?, expiresAt, dispatched? } · 400 bad body · 401 no or bad credential · 403 a token for another project
+// UUID, kept on the session record and the presence row to find the session again), proc ({ pid, procStart }: the claude process, which links a
+// /clear to its session) and source (startup, resume, clear, compact: the session is then on, or working after a compaction). The row's machine
+// is the device itself, whatever hostname the body names. The X-Work-OS-Hook header marks the hook's protocol (new hooks send 4; none means 1,
+// which still gets the copy in save answers).
+//   200 { brief, token?, expiresAt, dispatched?, elsewhere?, projectFolders? } · 400 bad body · 401 no or bad credential
 //   404 { error, unfiled: true, quiet? } no project with a folder on this computer owns this folder (quiet: the person marked it not Work OS) · 413 body too large · 429 over the hourly limit
 // dispatched (H15): the task ref, answered when this PC's own worker session row for ccSession says the task dispatcher started
 // it; the presence row then carries it and its label is forced to "<Project> · worker · #<ref>".
@@ -63,6 +73,9 @@ const Body = z
     tool: z.enum(['desktop', 'vscode', 'terminal']).optional(),
     ccSession: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i).optional(),
     source: z.enum(['startup', 'resume', 'clear', 'compact']).optional(),
+    // Hook protocol 4: the claude process (a /clear stays in it) and the renew sign-in (a new token for an existing session, nothing else).
+    proc: z.object({ pid: z.number().int().min(1).max(2_147_483_647), procStart: z.string().max(40).optional() }).strict().optional(),
+    renew: z.boolean().optional(),
     head: z.string().max(80).optional(),
     dirty: z.boolean().optional(),
     worktrees: z.array(z.string().max(200)).max(20).optional(),
@@ -80,6 +93,16 @@ async function lookup(s: Scope, b: Body, deviceId: string): Promise<string | nul
 async function unfiled(s: Scope, b: Body): Promise<Response> {
   const quiet = await quietFolder(s, b.machine, b.path);
   return reply(404, { error: NO_PROJECT, unfiled: true, ...(quiet ? { quiet: true } : {}) });
+}
+
+/** A write that races another start of the same session (the presence row's upsert) fails once with a duplicate key: the second try finds the row. */
+async function again<T>(f: () => Promise<T>): Promise<T> {
+  try {
+    return await f();
+  } catch (e) {
+    if ((e as { code?: number })?.code !== 11000) throw e;
+    return f();
+  }
 }
 
 function baseUrl(req: Request): string {
@@ -108,9 +131,6 @@ export async function POST(req: Request): Promise<Response> {
     } else return unauthorized();
     // Its owner must still be a member (removing someone revokes their computers; this holds even if that failed).
     if (!(await roleOf(s.userId, s.orgId))) return unauthorized();
-    if (!(await reserveAgent(session ? 'session' : 'device', session ? session.id : device.id))) {
-      return reply(429, { error: 'Too many Work OS briefs from this computer in the last hour; try again later.' }, { 'Retry-After': '600' });
-    }
 
     const text = await readCapped(req, MAX_BODY);
     if (text === null) return reply(413, { error: 'body too large' });
@@ -127,43 +147,73 @@ export async function POST(req: Request): Promise<Response> {
     const b = parsed.data;
     if (b.account && (b.account.length > 40 || /@|^\s*(sk-|wkr_|wos_|ghp_|xox)/i.test(b.account) || /[A-Za-z0-9_-]{32,}/.test(b.account))) delete b.account; // the same test as start_work's account
 
+    // The budgets: a renew has its own (per computer and Claude Code session), so a loop of renews never uses up the 30 sign-ins an hour.
+    const allowed = b.renew ? await reserveAgent('renew', `${device.id}:${b.ccSession ?? session?.id ?? 'none'}`) : await reserveAgent(session ? 'session' : 'device', session ? session.id : device.id);
+    if (!allowed) return reply(429, { error: 'Too many Work OS briefs from this computer in the last hour; try again later.' }, { 'Retry-After': '600' });
+
     const hook = hookHeader(req.headers.get('x-work-os-hook'));
     const tz = await timezoneOf(s);
     return await runWithRequestContext({ userId: s.userId, tz, hook }, async () => {
+      // The session's record: by its token, else by its Claude Code session id (or the claude process, for a /clear). None yet: made below.
+      let identity = session ? await identityById(session.id) : await findIdentity(s, device.id, { ccSession: b.ccSession, proc: b.proc, source: b.source });
+
       const ctx0 = { baseUrl: baseUrl(req), caller: { agent: 'claude-code' as const, keyName: `Claude Code on ${device.name}`.slice(0, 80), userId: s.userId, orgId: s.orgId } };
-      // Protocol 3 (Identity step 5): a session whose folder no project owns is still on the roster, as a session with no project. It gets
-      // a token that opens only event and wait, and no brief. An older hook gets the 404 as before.
+
+      // Renew: a new token for the existing session and nothing else (no brief, no folders, no project change).
+      if (b.renew) {
+        if (session) return reply(200, { expiresAt: session.expiresAt.toISOString(), session: session.id });
+        if (!identity) return reply(404, { error: 'No session record for this Claude Code session on this computer.' });
+        // Its folder may no longer be linked on this computer: then it renews unfiled, as a fresh start would.
+        const rpid = identity.projectId && (await projectOnDevice(s, device.id, identity.projectId)) ? identity.projectId : null;
+        const made = await createAgentSession(s, device.id, rpid, cred, { identity, ccSession: b.ccSession, dispatched: await dispatchedOfToken(identity._id) });
+        await touchIdentity(identity, { ccSession: b.ccSession, proc: b.proc, projectId: rpid });
+        if (!rpid && identity.projectId) {
+          // Unfiled now: its project row ends and the unfiled row opens, as noProjectStart does (events go to that row).
+          await endRowsElsewhere(s, identity._id, null);
+          await again(() => registerUnfiledSession(ctx0, identity!._id, { hook: hook ?? 1, viaHook: true, machine: device.id, ccSession: b.ccSession }, undefined));
+        }
+        return reply(200, { token: made.token, expiresAt: made.expiresAt.toISOString(), session: identity._id });
+      }
+
+      // A session whose folder no project owns is still on the roster, as a session with no project (protocol 3). It gets a token that opens
+      // only event and wait, and no brief; it keeps its id, and the id stays when a later start files it. An older hook gets the 404 as before.
       const noProjectStart = async (): Promise<Response> => {
         const quiet = await quietFolder(s, b.machine, b.path);
         const folderName = b.path ? b.path.split(/[\\/]+/).filter(Boolean).pop() : undefined;
         let token: string | undefined;
         let sid: string;
         let until: Date;
-        if (session) {
+        if (session && identity) {
           sid = session.id;
           until = session.expiresAt;
         } else {
-          if (b.ccSession) await endUnfiledSession(s, device.id, b.ccSession); // one Claude Code session is one row
-          const made = await createAgentSession(s, device.id, null, cred, null, b.ccSession);
+          const made = await createAgentSession(s, device.id, null, cred, { identity, ccSession: b.ccSession, proc: b.proc });
           token = made.token;
           sid = made.id;
           until = made.expiresAt;
+          identity = made.identity;
         }
-        await registerUnfiledSession(ctx0, sid, { hook: hook ?? 1, viaHook: true, branch: b.branch, machine: device.id, ccSession: b.ccSession, source: b.source, label: b.label, title: b.title, aiTitle: b.aiTitle, tool: b.tool, model: b.model, account: b.account }, folderName);
+        await touchIdentity(identity!, { ccSession: b.ccSession, proc: b.proc, projectId: null });
+        if (b.ccSession && !session) await endRowsOnOtherDevices(s, device.id, b.ccSession);
+        await endRowsElsewhere(s, sid, null); // it was on a project and is filed nowhere now (an older hook's foreign remote): that row ends
+        await again(() => registerUnfiledSession(ctx0, sid, { hook: hook ?? 1, viaHook: true, branch: b.branch, machine: device.id, ccSession: b.ccSession, source: b.source, label: b.label, title: b.title, aiTitle: b.aiTitle, tool: b.tool, model: b.model, account: b.account }, folderName));
         return reply(200, { unfiled: true, ...(quiet ? { quiet: true } : {}), ...(token ? { token } : {}), expiresAt: until.toISOString() });
       };
-      let projectId: string;
-      if (session) {
-        // A token is for its own project only: a folder that belongs to another project gets a new session (device key).
-        const found = b.folders ? await lookup(s, b, device.id) : session.projectId;
-        if (found !== session.projectId) return reply(403, { error: 'This session token is for another project.' });
-        if (session.projectId === null) return noProjectStart();
-        projectId = session.projectId;
-      } else {
-        const found = await lookup(s, b, device.id);
-        if (!found) return (hook ?? 1) >= 3 ? noProjectStart() : unfiled(s, b);
-        projectId = found;
+
+      // The folder decides (case 1); with no folder of a project here the session stays on the project it has (case 2) or is unfiled (case 3).
+      const found = await lookup(s, b, device.id);
+      let projectId: string | null = found;
+      let elsewhere = false;
+      if (!found && identity?.projectId) {
+        projectId = identity.projectId;
+        elsewhere = true;
+        // An older hook (before protocol 5, the identity-aware one) cannot say it is elsewhere: it stays on the project only when it names no remote, or one of the project's own remotes.
+        if ((hook ?? 1) < 5 && b.remote) {
+          const r = normalizeRemote(b.remote);
+          if (r && !(await projectRemotes(s, device.id, projectId)).includes(r)) projectId = null;
+        }
       }
+      if (!projectId) return (hook ?? 1) >= 3 ? noProjectStart() : unfiled(s, b);
       // Checked again with a token: the folder may have been unlinked since the session began.
       if (!(await projectOnDevice(s, device.id, projectId))) return unfiled(s, b);
       let token: string | undefined;
@@ -171,22 +221,30 @@ export async function POST(req: Request): Promise<Response> {
       let dispatched: { taskId: string; ref: number } | null = null;
       if (!session) {
         dispatched = b.ccSession ? await dispatchedSession(s, device.id, b.ccSession) : null;
-        if (b.ccSession) await endUnfiledSession(s, device.id, b.ccSession); // the folder has a project now: the no-project row and token end
-        const made = await createAgentSession(s, device.id, projectId, cred, dispatched);
+        const made = await createAgentSession(s, device.id, projectId, cred, { identity, dispatched, ccSession: b.ccSession, proc: b.proc });
         token = made.token;
+        identity = made.identity;
         session = { id: made.id, projectId, expiresAt: made.expiresAt };
+        if (b.ccSession) await endRowsOnOtherDevices(s, device.id, b.ccSession); // the same Claude Code session on another computer of this person ends there
       } else dispatched = await dispatchedOfToken(session.id);
+      await touchIdentity(identity!, { ccSession: b.ccSession, proc: b.proc, projectId, ...(token ? { dispatched } : {}) });
+      await endRowsElsewhere(s, session.id, projectId); // the session is on this project now: its rows on another project, or none, end
       const ctx = ctx0;
-      // The session id is the token row's id (the first 32 hex of the token's SHA-256), never the token.
-      // Where this session works: no version bump (lib/data/states.ts setWhere). Only when the hook sent something to show.
-      if (b.head || b.dirty !== undefined || b.worktrees || b.branch) await setWhere(s, projectId, b.machine || device.name, { branch: b.branch, head: b.head, dirty: b.dirty, worktrees: b.worktrees });
+      // The session id is the session record's id, never a token.
+      // Where this session works: no version bump (lib/data/states.ts setWhere). Only when the hook sent something to show, and never from a folder that is not the project's.
+      if (!elsewhere && (b.head || b.dirty !== undefined || b.worktrees || b.branch)) await setWhere(s, projectId, b.machine || device.name, { branch: b.branch, head: b.head, dirty: b.dirty, worktrees: b.worktrees });
       // Hook protocol: the X-Work-OS-Hook header; a start without it is the old hook (1, still gets the copy in answers).
-      const brief = await startWorkBrief(ctx, projectId, session.id, { hook: hook ?? 1, viaHook: true, branch: b.branch, machine: device.id, ccSession: b.ccSession, source: b.source, label: b.label, title: b.title, aiTitle: b.aiTitle, tool: b.tool, model: b.model, account: b.account, ...(dispatched ? { dispatched } : {}) });
+      const sidNow = session.id;
+      const brief = await again(() => startWorkBrief(ctx, projectId!, sidNow, { hook: hook ?? 1, viaHook: true, branch: b.branch, machine: device.id, ccSession: b.ccSession, source: b.source, label: b.label, title: b.title, aiTitle: b.aiTitle, tool: b.tool, model: b.model, account: b.account, ...(dispatched ? { dispatched } : {}) }));
       // Lanes step 6: the folder's key (sha1 of the computer and the path, never the path) goes on the row; another live session in it is the brief's sameFolder.
-      const fk = folderKeyOf(device.id, b.path);
-      await setFolderKey(s, { sid: session.id, projectId }, fk);
-      const sameFolder = await sameFolderOf(s, projectId, fk, hookRowId(s.userId, session.id, projectId));
-      return reply(200, { brief: sameFolder ? { ...brief, sameFolder } : brief, ...(dispatched ? { dispatched: dispatched.ref } : {}), ...(token ? { token } : {}), expiresAt: session.expiresAt.toISOString() });
+      let sameFolder: Awaited<ReturnType<typeof sameFolderOf>> = null;
+      if (!elsewhere) {
+        const fk = folderKeyOf(device.id, b.path);
+        await setFolderKey(s, { sid: session.id, projectId }, fk);
+        sameFolder = await sameFolderOf(s, projectId, fk, hookRowId(s.userId, session.id, projectId));
+      }
+      const projectFolders = elsewhere ? await projectFolderIds(s, device.id, projectId) : null;
+      return reply(200, { brief: sameFolder ? { ...brief, sameFolder } : brief, ...(dispatched ? { dispatched: dispatched.ref } : {}), ...(token ? { token } : {}), expiresAt: session.expiresAt.toISOString(), ...(elsewhere ? { elsewhere: true, projectFolders } : {}) });
     });
   } catch (err) {
     if (err instanceof InputError || err instanceof NotFoundError) return reply(400, { error: err.message });
