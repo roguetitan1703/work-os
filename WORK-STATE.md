@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 304. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 305. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -90,7 +90,8 @@ Copy of the Work OS state, version 304. WORK-STATE.md is a copy of the State, wr
 - Stop hook forces an extra turn after every merge or release just to save State; make the release flow save State itself (working plan draft 2, point 5).
 - Usage metric: subscription limits are % of the 5-hour and weekly windows, weighting not published. Compare work in API-price-weighted input tokens from transcripts (input + 0.1 cache read + 1.25 cache write + 5 output) as a stand-in; check it against get_usage % moves.
 - Pull to refresh broken in the PWA (Om, 21 Nov): the code (components/mobile/pull-to-refresh.tsx) hasn't changed since 14 Oct; the code read found no cause; a touch test on master (slot S, iPhone and Pixel) is running. — waits on the slot S touch test; Om's phone OS
+- tests/e2e/pull-refresh.mjs checks the spinner at 450 ms against a 500 ms hold: tight, may flake on a slow machine; widen if it does (merged 7fa6d88, 21 Nov).
 
 ## Parked
 - 2 lines in Work OS: list_parked, or the project page.
-<!-- work-os-copy sha1:8ddff87924f9b374f1b31432ed678079122b64b3 -->
+<!-- work-os-copy sha1:563e91ee4446dfe8d5364aacccd1de19e65bd899 -->
