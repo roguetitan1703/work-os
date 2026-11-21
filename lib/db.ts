@@ -112,6 +112,8 @@ export type ActivityDoc = Placed & {
   subject?: import('./types').ActivitySubject;
   /** The author of `note` when it is not the actor (a user id). */
   textBy?: string;
+  /** A comment recorded from a Discord message: that message's id. */
+  discordMessageId?: string;
   /** The author of the subject's title (a renamed project: of its old name) when it is not the actor (a user id). */
   titleBy?: string;
   at: Date;

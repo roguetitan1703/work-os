@@ -69,7 +69,7 @@ async function recordPost(orgId: string, guildId: string, project: ProjectDoc, m
   if (await liveTaskOfMessage(orgId, m.id)) return null;
   const who = await whoWrote(orgId, guildId, m);
   const s = ownerScope(project);
-  const actor: Actor = { kind: 'discord', ...(who.userId ? { userId: who.userId } : {}) };
+  const actor: Actor = { kind: 'discord', ...(who.userId ? { userId: who.userId } : { name: who.name.slice(0, 80) }) };
   const { task, existing } = await taskFromMessage(
     s,
     m,
@@ -107,9 +107,12 @@ async function recordReply(orgId: string, guildId: string, project: ProjectDoc, 
   const text = plainText(m) || (m.attachments.length ? `(${m.attachments.length} attachment${m.attachments.length === 1 ? '' : 's'})` : '');
   if (!text) return false;
   const who = await whoWrote(orgId, guildId, m);
-  const actor: Actor = { kind: 'discord', ...(who.userId ? { userId: who.userId } : {}) };
+  const actor: Actor = { kind: 'discord', ...(who.userId ? { userId: who.userId } : { name: who.name.slice(0, 80) }) };
+  // One comment per Discord message: the live event and the catch-up can both bring the same reply (claimed on the task, atomically).
+  const claim = await (await orgWide(orgId)).tasks.updateOne({ _id: task._id, 'source.seenIds': { $ne: m.id } }, { $push: { 'source.seenIds': { $each: [m.id], $slice: -300 } } } as never);
+  if (!claim.modifiedCount) return false;
   const note = who.userId ? clipText(text, 2000) : `${plainName(who.name) || 'Someone'} (Discord): ${clipText(text, 1900)}`;
-  await addComment(ownerScope(project), task.ref, note, actor);
+  await addComment(ownerScope(project), task.ref, note, actor, { discordMessageId: m.id });
   await tellLead(project, `Reply on #${task.ref} from ${plainName(who.name) || 'someone'}: ${lineOf(m, text)}`, task.ref);
   return true;
 }

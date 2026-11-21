@@ -156,7 +156,7 @@ export async function taskFromMessage(
       source,
       // The message's words are its author's, not the member's who made the task (lib/data/authors.ts): a title the
       // member typed is theirs.
-      authors: { title: overrides.title?.trim() ? actor : msgAuthor, description: msgAuthor },
+      authors: { title: overrides.title?.trim() ? actor : msgAuthor, description: msgAuthor, links: [actor, ...m.attachments.slice(0, 8).map(() => msgAuthor)] },
     },
   );
   return { task, existing: false };

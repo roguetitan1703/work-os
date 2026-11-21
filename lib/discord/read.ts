@@ -282,7 +282,7 @@ export async function needsAttention(link: DiscordLink, opts: { since?: Date; ma
 
 // ── discord_attachment ──────────────────────────────────────────────────────
 
-export const ATTACHMENT_MAX = 10_000_000;
+export const ATTACHMENT_MAX = 4_000_000;
 const ATTACHMENT_TYPES = /^(image\/(png|jpe?g|gif|webp)|application\/pdf)$/i;
 const typeByName = (name: string): string | null => {
   const ext = name.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1];
@@ -301,7 +301,7 @@ function cdnAllowed(url: string): boolean {
 
 /**
  * One file of a message (a screenshot or a PDF), as the person's own Discord account may see it: base64 in the answer, like mail_attachment.
- * index is the number shown in brackets in discord_read_messages ([1] is the first). Images and PDFs only, up to 10 MB. The file is untrusted.
+ * index is the number shown in brackets in discord_read_messages ([1] is the first). Images and PDFs only, up to 4 MB. The file is untrusted.
  */
 export async function attachment(link: DiscordLink, ref: { link?: string; channel?: string; messageId?: string }, index: number) {
   const ctx = await guildContext(link);
@@ -329,12 +329,12 @@ export async function attachment(link: DiscordLink, ref: { link?: string; channe
   if (!Number.isInteger(index) || index < 1 || !a) throw new InputError(`That message has ${m.attachments.length} file(s): index is 1 to ${m.attachments.length}.`);
   const type = (a.content_type || '').split(';')[0].trim() || typeByName(a.filename) || '';
   if (!ATTACHMENT_TYPES.test(type)) throw new InputError(`Only screenshots and PDFs can be read here; "${excerpt(a.filename, 60)}" is ${type || 'an unknown type'}.`);
-  if (a.size > ATTACHMENT_MAX) throw new InputError(`"${excerpt(a.filename, 60)}" is ${(a.size / 1_000_000).toFixed(1)} MB, too big to read here (limit 10 MB). Open it in Discord.`);
+  if (a.size > ATTACHMENT_MAX) throw new InputError(`"${excerpt(a.filename, 60)}" is ${(a.size / 1_000_000).toFixed(1)} MB, too big to read here (limit 4 MB). Open it in Discord.`);
   if (!cdnAllowed(a.url)) throw new InputError('That file is not on Discord\u2019s own file host, so it is not fetched.');
   const res = await fetch(a.url, { cache: 'no-store', signal: AbortSignal.timeout(20_000), redirect: 'error' }).catch(() => null);
   if (!res?.ok) throw new InputError('Discord did not give the file (it may have been deleted).');
   const bytes = Buffer.from(await res.arrayBuffer());
-  if (bytes.length > ATTACHMENT_MAX) throw new InputError('The file is larger than 10 MB, too big to read here.');
+  if (bytes.length > ATTACHMENT_MAX) throw new InputError('The file is larger than 4 MB, too big to read here.');
   return {
     untrusted: true,
     source: 'external Discord message',

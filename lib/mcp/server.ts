@@ -2088,7 +2088,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       },
       annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
-    handler(async a => replyOnDiscord(s, a.task, a.text)),
+    handler(async a => replyOnDiscord(s, await discordGate(), a.task, a.text)),
   );
 
   // ── Mail (the person's own mailbox in Mailloom, through their own key) ──────

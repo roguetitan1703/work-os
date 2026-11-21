@@ -109,9 +109,8 @@ export async function onReactionAdd(orgId: string, guildId: string, r: Reaction,
   busy.add(key);
   try {
     if (await liveTaskOfMessage(orgId, messageId)) return; // already tracked: nothing
-    const reactor = await discordUser(guildId, userId);
-    if (!reactor) return void (await askToConnect(channelId, messageId, userId, baseUrl));
-    // What the reactor's own Discord account can see, minus the sensitive channels: never a channel they cannot read.
+    // What the reactor's own Discord account can see, minus the sensitive channels: never a channel they cannot read, and nothing
+    // (not even the "connect" note) is posted in one.
     const ctx = await guildContext({ orgId, guildId, discordId: userId });
     try {
       await assertNotBlocked(ctx, channelId);
@@ -119,6 +118,8 @@ export async function onReactionAdd(orgId: string, guildId: string, r: Reaction,
       if (e instanceof BlockedChannelError || e instanceof NotVisibleError) return;
       throw e;
     }
+    const reactor = await discordUser(guildId, userId);
+    if (!reactor) return void (await askToConnect(channelId, messageId, userId, baseUrl));
     const m = await fetchMessage(channelId, messageId);
     if (m.author?.id === ctx.botId) return; // the bot's own messages are not tracked
     await track(orgId, guildId, reactor, m, findChannel(ctx, channelId), baseUrl);
@@ -132,10 +133,14 @@ async function track(orgId: string, guildId: string, reactor: Scope, m: RawMessa
   const names = await memberNames(orgId);
   // The linked people the message @mentions (bots, roles and @everyone are not people here); nobody mentioned: the reactor.
   const mentioned: string[] = [];
+  const discordIdOf = new Map<string, string>();
   for (const u of m.mentions ?? []) {
     if (u.bot) continue;
     const p = await discordUser(guildId, u.id);
-    if (p && !mentioned.includes(p.userId)) mentioned.push(p.userId);
+    if (p && !mentioned.includes(p.userId)) {
+      mentioned.push(p.userId);
+      discordIdOf.set(p.userId, u.id);
+    }
   }
   const people = mentioned.length ? mentioned : [reactor.userId];
   const project = await projectOfMessageChannel(orgId, m.channel_id, channel?.parentId ?? null);
@@ -148,8 +153,22 @@ async function track(orgId: string, guildId: string, reactor: Scope, m: RawMessa
     owner = { userId: able[0] ?? project.ownerId, orgId };
     assignees = able;
   } else {
-    owner = { userId: people[0], orgId };
-    assignees = [people[0]];
+    // With no project the task is private to its first person. Someone else than the reactor gets it only when their own Discord view
+    // of the channel is confirmed; otherwise it stays private to the reactor (a mention must not hand a message to a person who cannot read it).
+    let first = people[0];
+    if (first !== reactor.userId) {
+      let seen = false;
+      try {
+        const theirs = await guildContext({ orgId, guildId, discordId: discordIdOf.get(first) ?? '' });
+        await assertNotBlocked(theirs, m.channel_id);
+        seen = true;
+      } catch {
+        seen = false;
+      }
+      if (!seen) first = reactor.userId;
+    }
+    owner = { userId: first, orgId };
+    assignees = [first];
   }
   const author = await discordUser(guildId, m.author.id);
   const actor: Actor = { kind: 'discord', userId: reactor.userId };

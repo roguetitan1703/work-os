@@ -13,6 +13,7 @@ const R_BOT = '555555555555555559';
 const GEN = '666666666666666651';
 const BUG = '666666666666666652';
 const BLK = '666666666666666654';
+const HID = '666666666666666655'; // only the owner can see it
 const VIEW = 1 << 10;
 const HIST = 1 << 16;
 
@@ -86,7 +87,7 @@ try {
   for (const who of [Dee, Eli]) await setProfile(who, { quietStart: 0, quietEnd: 0 });
   const ch = (id, name, extra = {}) => ({ id, type: 0, name, guild_id: G1, parent_id: null, position: 0, permission_overwrites: [], ...extra });
   st.guilds[G1] = {
-    channels: [ch(GEN, 'general'), ch(BUG, 'delpat-os'), ch(BLK, 'secrets')],
+    channels: [ch(GEN, 'general'), ch(BUG, 'delpat-os'), ch(BLK, 'secrets'), ch(HID, 'owners-room', { permission_overwrites: [{ id: G1, type: 0, allow: '0', deny: String(VIEW) }, { id: DA, type: 1, allow: String(VIEW | HIST), deny: '0' }] })],
     roles: [{ id: G1, name: '@everyone', permissions: String(VIEW | HIST) }, { id: R_BOT, name: 'bot', permissions: '0', tags: { bot_id: BOT } }],
     members: { [DA]: { roles: [], user: { id: DA, username: 'om' } }, [DB]: { roles: [], user: { id: DB, username: 'bea' } }, [DX]: { roles: [], user: { id: DX, username: 'akash' } }, [BOT]: { roles: [R_BOT], user: { id: BOT, username: 'workos-bot' } } },
   };
@@ -149,6 +150,26 @@ try {
   check('first set: the reply is saved on the task', k1?.source?.replyId === reply1?.id, JSON.stringify(k1?.source));
   const c1 = await rawDb.collection('activity').find({ taskId: k1?._id, type: 'comment' }).toArray();
   check('first set: a reply in the window is a comment on its issue', c1.length === 1 && /iOS too/.test(c1[0].note ?? ''), JSON.stringify(c1.map(c => c.note)));
+
+  // review 1: words from someone with no Work OS link are never the reader's own
+  const gt = await mcp('get_task', { task: k1?.ref });
+  const gc = (gt.activity ?? []).find(a => a.type === 'comment');
+  check('unlinked reply: get_task marks the comment writtenBy (a Discord user), not the reader\'s own', !!gc?.writtenBy && /Discord user "Akash"/.test(gc.writtenBy), JSON.stringify(gc));
+  const cAct = c1[0]?.actor;
+  check('unlinked reply: the comment\'s actor is Discord with the name and no user', cAct?.kind === 'discord' && !cAct.userId && cAct.name === 'Akash', JSON.stringify(cAct));
+  check('unlinked post: the task\'s first link and attachment link are not the reader\'s own', (k1?.links ?? []).every(l => l.by?.kind !== 'discord' || (!l.by.userId && l.by.name === 'Akash') ) && (k1?.links ?? []).some(l => l.label === 'shot.png' && l.by?.kind === 'discord-author'), JSON.stringify(k1?.links?.map(l => l.by)));
+  const pgT = await ctx.newPage();
+  await pgT.goto(`${B}/tasks/${k1?.ref}`);
+  await pgT.waitForLoadState('networkidle').catch(() => {});
+  const bodyT = await pgT.locator('body').innerText();
+  check('unlinked reply: the app labels it "Akash · Discord", not "You"', /Akash · Discord/.test(bodyT) && !/You · Discord/.test(bodyT), bodyT.slice(0, 300));
+  await pgT.close();
+  // review 2: the live event and the catch-up bring the same reply: one comment
+  await live(r1);
+  await live(r1);
+  await sleep(800);
+  const c1b = await rawDb.collection('activity').find({ taskId: k1?._id, type: 'comment' }).toArray();
+  check('replay: the same reply seen again (live, twice) is still one comment, with its Discord message id', c1b.length === 1 && c1b[0].discordMessageId === r1.id, JSON.stringify(c1b.map(c => [c.note, c.discordMessageId])));
   check('first set: a reply to something else gets nothing', (await taskOf(unrelated.id)) === null && botPostsTo(unrelated.id).length === 0);
   const leads1 = await leadMsgs(PID);
   check('first set: the lead gets one message per issue and one per reply', leads1.length === 3 && leads1.filter(m => /^New issue #\d+ from Akash: /.test(m.body)).length === 2 && leads1.some(m => /^Reply on #\d+ from Akash: it happens on iOS too/.test(m.body)), leads1.map(m => m.body).join(' | '));
@@ -289,6 +310,17 @@ try {
   await react(DA, e6);
   await sleep(1500);
   check('emoji: another emoji, the bot\'s own message and a sensitive channel give nothing', [e4, e5, e6].every(m => !st.posts.some(p => p.body.message_reference?.message_id === m.id)) && (await rawDb.collection('tasks').countDocuments({ 'source.messageId': { $in: [e4.id, e5.id, e6.id] } })) === 0);
+  // review 4: nothing is posted in a sensitive channel, not even the connect note
+  const e9 = put(raw({ channel: BLK, content: 'please look at the vault item' }));
+  const postsBefore9 = st.posts.length;
+  await react(DX, e9);
+  await sleep(1200);
+  check('emoji: an unlinked reactor in a sensitive channel gets no connect note and no task', st.posts.length === postsBefore9 && (await taskOf(e9.id)) === null, JSON.stringify(st.posts.slice(postsBefore9).map(p => p.body.content)));
+  // review 5: no project, and the mentioned person cannot see the channel: private to the reactor
+  const e10 = put(raw({ channel: HID, content: 'Bea, the board pack is ready for review', mentions: [mention(DB, 'Bea (Discord)')] }));
+  await react(DA, e10);
+  const ke10 = await waitFor(() => taskOf(e10.id));
+  check('emoji: a mentioned person who cannot see the channel does not get it; it is private to the reactor', !!ke10 && ke10.visibility === 'private' && ke10.ownerId === A.userId && (ke10.assigneeIds ?? []).join() === A.userId, JSON.stringify({ v: ke10?.visibility, o: ke10?.ownerId, a: ke10?.assigneeIds }));
   // someone who is not linked
   const e7 = put(raw({ channel: GEN, content: 'please look at the onboarding email' }));
   const postsBefore7 = st.posts.length;
@@ -496,6 +528,8 @@ try {
   const needOld = (await call('ask', { project: 'Delpat OS', to: 'me', kind: 'approve', ask: 'Rotate the staging keys before Friday?' })).need;
   check('dm: two Needs were asked', !!needNew?.id && !!needOld?.id, JSON.stringify({ n: needNew, o: needOld }));
   await rawDb.collection('needs').updateOne({ _id: needOld.id }, { $set: { createdAt: new Date(Date.now() - 25 * 3_600_000) } });
+  const needAncient = (await call('ask', { project: 'Delpat OS', to: 'me', kind: 'approve', ask: 'Pick the venue for the offsite from March?' })).need;
+  await rawDb.collection('needs').updateOne({ _id: needAncient.id }, { $set: { createdAt: new Date(Date.now() - 72 * 3_600_000) } });
   // an alert of another kind (a task unblocked) is not sent to Discord any more
   const blocker = (await call('add_task', { title: 'DM test blocker' })).created.ref;
   await call('add_task', { title: 'DM test waiter', depends_on: [blocker] });
@@ -506,6 +540,7 @@ try {
   const oldDm = got.filter(d => d.content.includes(`Need #${needOld.ref}`));
   check('dm: a Need open over 24 hours is sent once to the person\'s Discord', oldDm.length === 1 && /Waiting over a day/.test(oldDm[0].content) && /Rotate the staging keys/.test(oldDm[0].content), JSON.stringify(got.map(d => d.content)));
   check('dm: it has no buttons (Needs are answered in the app)', !oldDm[0]?.components, JSON.stringify(oldDm[0]?.components));
+  check('dm: a Need open for over two days gets none, and is not marked (no burst when Discord is switched on)', !got.some(d => d.content.includes(`Need #${needAncient.ref}`)) && !(await rawDb.collection('needs').findOne({ _id: needAncient.id }))?.discordDmAt);
   check('dm: a Need open for less than a day gets none', !got.some(d => d.content.includes(`Need #${needNew.ref}`)));
   check('dm: other kinds (unblocked and the rest) are not sent to Discord', got.length === 1, JSON.stringify(got.map(d => d.content.slice(0, 80))));
   const marked = await rawDb.collection('needs').findOne({ _id: needOld.id });
@@ -533,7 +568,7 @@ try {
     { filename: 'a.png', url: cdn('v4.png'), size: png.length, content_type: 'image/png' },
     { filename: 'b.pdf', url: cdn('v4.pdf'), size: 11, content_type: 'application/pdf' },
     { filename: 'c.zip', url: cdn('v4.png'), size: 5, content_type: 'application/zip' },
-    { filename: 'd.png', url: cdn('v4.png'), size: 11_000_000, content_type: 'image/png' },
+    { filename: 'd.png', url: cdn('v4.png'), size: 5_000_000, content_type: 'image/png' },
     { filename: 'e.png', url: 'https://evil.example.com/e.png', size: 5, content_type: 'image/png' },
   ] }));
   const mRep = put(raw({ channel: GEN, content: 'replying to the files', author: { id: DB, username: 'bea' }, ref: mAtt.id }));
@@ -554,7 +589,7 @@ try {
   const att3 = await mcpAs(await mkKey({ agent: 'claude', userId: ME.userId, orgId: ME.orgId, name: 'v4 att' }), 'discord_attachment', { message_link: link(mAtt.id), index: 3 });
   check('attachment: other types are refused', att3.isError && /Only screenshots and PDFs/.test(att3.text), att3.text.slice(0, 160));
   const att4 = await mcpAs(await mkKey({ agent: 'claude', userId: ME.userId, orgId: ME.orgId, name: 'v4 att4' }), 'discord_attachment', { message_link: link(mAtt.id), index: 4 });
-  check('attachment: a file over 10 MB is refused', att4.isError && /10 MB/.test(att4.text), att4.text.slice(0, 160));
+  check('attachment: a file over 4 MB is refused', att4.isError && /4 MB/.test(att4.text), att4.text.slice(0, 160));
   const att5 = await mcpAs(await mkKey({ agent: 'claude', userId: ME.userId, orgId: ME.orgId, name: 'v4 att5' }), 'discord_attachment', { message_link: link(mAtt.id), index: 5 });
   check('attachment: a file not on Discord\u2019s host is not fetched', att5.isError && /not on Discord/.test(att5.text), att5.text.slice(0, 160));
   const att6 = await mcpAs(await mkKey({ agent: 'claude', userId: ME.userId, orgId: ME.orgId, name: 'v4 att6' }), 'discord_attachment', { message_link: link(mAtt.id), index: 9 });
@@ -570,10 +605,13 @@ try {
   const rp1 = await mcpAs(rk, 'discord_reply', { task: k6.ref, text: 'Fixed in the next build' });
   const ed = st.edits.slice(edits6).find(e => e.id === k6.source.replyId);
   check('reply: the first line edits the Recorded reply', !rp1.isError && /^Recorded \[#\d+\]\(<[^>]*>\): Fixed in the next build$/.test(ed?.body.content ?? '') && st.posts.length === posts6, JSON.stringify({ rp1: rp1.text.slice(0, 120), ed: ed?.body }));
-  const rp2 = await mcpAs(rk, 'discord_reply', { task: k6.ref, text: 'Shipped, please check' });
-  check('reply: a later line is a new reply under the message', !rp2.isError && st.posts.length === posts6 + 1 && st.posts.at(-1).body.message_reference?.message_id === p1.id && st.posts.at(-1).body.content === 'Shipped, please check', JSON.stringify(st.posts.at(-1)?.body));
+  const rp2 = await mcpAs(rk, 'discord_reply', { task: k6.ref, text: 'Shipped, please check [the build](https://evil.example.com/x) https://evil.example.com/y' });
+  check('reply: a later line is a new reply under the message', !rp2.isError && st.posts.length === posts6 + 1 && st.posts.at(-1).body.message_reference?.message_id === p1.id && st.posts.at(-1).body.content === 'Shipped, please check the build', JSON.stringify(st.posts.at(-1)?.body));
   const rp3 = await mcpAs(rk, 'discord_reply', { task: k6.ref, text: 'x'.repeat(141) });
   check('reply: over 140 characters is refused', rp3.isError && /140/.test(rp3.text), rp3.text.slice(0, 120));
+  const Fay = await makeUser({ email: 'fay@example.test', name: 'Fay Nair', orgId: ME.orgId, role: 'member' });
+  const noLink = await mcpAs(await mkKey({ agent: 'claude', userId: Fay.userId, orgId: Fay.orgId, name: 'v4 reply fay' }), 'discord_reply', { task: k6.ref, text: 'hello' });
+  check('reply: needs the caller\'s own Discord link', noLink.isError && /Connect your Discord account/.test(noLink.text), noLink.text.slice(0, 120));
   const plain = (await call('add_task', { title: 'Not from Discord' })).created.ref;
   const rp4 = await mcpAs(rk, 'discord_reply', { task: plain, text: 'hello' });
   check('reply: a task that did not come from Discord is refused', rp4.isError && /did not come from Discord/.test(rp4.text), rp4.text.slice(0, 120));

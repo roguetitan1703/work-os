@@ -165,6 +165,8 @@ export type TaskSource =
       replyChannelId?: string;
       /** The first discord_reply edited the reply into "Recorded #N: <text>"; later ones post new replies. */
       noted?: boolean;
+      /** Discord message ids already recorded as comments on this task (a reply seen live and again by the catch-up is one comment). */
+      seenIds?: string[];
     }
   | {
       /** A mail from the person's own mailbox (lib/mail/to-task.ts). messageId is "mail:" + the Message-ID, so it never meets a Discord id. */

@@ -624,6 +624,8 @@ export async function runAlerts(s: Scope, opts: { dryRun?: boolean; baseUrl: str
 
 /** A Need waits over a day before its Discord DM (once per Need): the person may have missed the app and the phone. */
 const NEED_DM_AFTER_MS = 24 * 3_600_000;
+/** ...and only until two days: a Need older than that never gets the DM (switching Discord on must not send a burst of old Needs). */
+const NEED_DM_UNTIL_MS = 48 * 3_600_000;
 
 /**
  * The DM for Needs that have waited over a day. Only for a person who linked Discord and has the Discord switch on; one message per
@@ -632,7 +634,7 @@ const NEED_DM_AFTER_MS = 24 * 3_600_000;
 async function dmOldNeeds(s: Scope, c: Collections, profile: { discordId: string | null }, settings: { channels: { discord?: boolean }; kinds: Record<string, boolean | undefined> }, baseUrl: string, now: Date): Promise<string | null> {
   if (!settings.channels.discord || settings.kinds.need === false || !discordConfig() || !profile.discordId) return null;
   try {
-    const old = await c.needs.find({ to: s.userId, status: 'open', discordDmAt: { $exists: false }, createdAt: { $lte: new Date(now.getTime() - NEED_DM_AFTER_MS) } }).sort({ createdAt: 1 }).limit(5).toArray();
+    const old = await c.needs.find({ to: s.userId, status: 'open', discordDmAt: { $exists: false }, createdAt: { $lte: new Date(now.getTime() - NEED_DM_AFTER_MS), $gt: new Date(now.getTime() - NEED_DM_UNTIL_MS) } }).sort({ createdAt: 1 }).limit(5).toArray();
     for (const n of old) {
       const claim = await c.needs.updateOne({ _id: n._id, discordDmAt: { $exists: false } }, { $set: { discordDmAt: now } });
       if (claim.modifiedCount !== 1) continue;

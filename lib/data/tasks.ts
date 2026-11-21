@@ -316,7 +316,7 @@ async function logActivity(
   task: Pick<TaskDoc, '_id' | 'ref' | 'title' | 'orgId' | 'ownerId' | 'visibility' | 'sharedWith'>,
   actor: Actor,
   type: ActivityType,
-  extra: { changes?: Record<string, FieldChange>; note?: string; at?: Date } = {},
+  extra: { changes?: Record<string, FieldChange>; note?: string; at?: Date; discordMessageId?: string } = {},
 ): Promise<ActivityDoc> {
   // History entries are seen by whoever sees the task.
   const doc: ActivityDoc = {
@@ -332,6 +332,7 @@ async function logActivity(
   };
   if (extra.changes && Object.keys(extra.changes).length) doc.changes = extra.changes;
   if (extra.note?.trim()) doc.note = extra.note.trim();
+  if (extra.discordMessageId) doc.discordMessageId = extra.discordMessageId;
   const rc = requestContext();
   if (rc.session) doc.session = rc.session;
   if (rc.repo) doc.repo = rc.repo;
@@ -949,14 +950,14 @@ export async function completeTask(s: Scope, key: string | number, note: string 
   return updateTask(s, key, { status: 'Done' }, actor, { note });
 }
 
-export async function addComment(s: Scope, key: string | number, note: string, actor: Actor): Promise<Task> {
+export async function addComment(s: Scope, key: string | number, note: string, actor: Actor, opts: { discordMessageId?: string } = {}): Promise<Task> {
   if (!note.trim()) throw new InputError('Note is empty');
   const c = await scoped(s);
   const cur = await findTaskDoc(c, key);
   const now = new Date();
   await takeBackOnEdit(s, cur, actor);
   await c.tasks.updateOne({ _id: cur._id }, { $set: { updatedAt: now } });
-  await logActivity(c, cur, actor, 'comment', { note });
+  await logActivity(c, cur, actor, 'comment', { note, ...(opts.discordMessageId ? { discordMessageId: opts.discordMessageId } : {}) });
   return toTask({ ...cur, updatedAt: now });
 }
 
