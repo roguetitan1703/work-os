@@ -114,6 +114,7 @@ flow-hooks|flow-hooks.mjs|none|plain
 agent-start|agent-start.mjs|none|plain
 agent-renew|agent-renew.mjs|none|plain
 session-merge|session-merge.mjs|none|plain
+session-identity-replay|session-identity-replay.mjs|none|plain
 flow-h2|flow-h2.mjs|none|plain
 claude-usage|claude-usage.mjs|none|plain
 agent-state|agent-state.mjs|none|plain

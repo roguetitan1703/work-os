@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { verifyDeviceKey, DEVICE_KEY_PREFIX } from '@/lib/devices';
-import { AGENT_TOKEN_PREFIX, createAgentSession, dispatchedOfToken, dispatchedSession, closeLeftBehind, restoreDoing, findIdentity, identityById, projectFolderIds, projectOnDevice, projectRemotes, touchIdentity } from '@/lib/agent-sessions';
+import { AGENT_TOKEN_PREFIX, createAgentSession, dispatchedOfToken, dispatchedSession, closeLeftBehind, reopenLeftBehind, restoreDoing, findIdentity, identityById, projectFolderIds, projectOnDevice, projectRemotes, touchIdentity } from '@/lib/agent-sessions';
 import { normalizeRemote } from '@/lib/data/code-locations';
 import { agentReply as reply, agentUnauthorized as unauthorized, authAgentToken, bearerOf as bearer, readCapped } from '@/lib/agent-auth';
 import { roleOf } from '@/lib/caller';
@@ -233,8 +233,14 @@ export async function POST(req: Request): Promise<Response> {
       if (!elsewhere && (b.head || b.dirty !== undefined || b.worktrees || b.branch)) await setWhere(s, projectId, b.machine || device.name, { branch: b.branch, head: b.head, dirty: b.dirty, worktrees: b.worktrees });
       // Hook protocol: the X-Work-OS-Hook header; a start without it is the old hook (1, still gets the copy in answers).
       const sidNow = session.id;
-      const brief = await again(() => startWorkBrief(ctx, projectId!, sidNow, { hook: hook ?? 1, viaHook: true, branch: b.branch, machine: device.id, ccSession: b.ccSession, source: b.source, label: b.label, title: b.title, aiTitle: b.aiTitle, tool: b.tool, model: b.model, account: b.account, ...(dispatched ? { dispatched } : {}) }));
-      await restoreDoing(s, session.id, projectId, left.doing); // what the closed row was doing goes on the new row (it did not exist when the work moved)
+      let brief: Awaited<ReturnType<typeof startWorkBrief>>;
+      try {
+        brief = await again(() => startWorkBrief(ctx, projectId!, sidNow, { hook: hook ?? 1, viaHook: true, branch: b.branch, machine: device.id, ccSession: b.ccSession, source: b.source, label: b.label, title: b.title, aiTitle: b.aiTitle, tool: b.tool, model: b.model, account: b.account, ...(dispatched ? { dispatched } : {}) }));
+      } catch (e) {
+        await reopenLeftBehind(s, left).catch(() => {}); // the closed row still holds the doing: it opens again, the next start moves it
+        throw e;
+      }
+      await restoreDoing(s, session.id, projectId, left); // what the closed row was doing goes on the new row (it did not exist when the work moved)
       // Lanes step 6: the folder's key (sha1 of the computer and the path, never the path) goes on the row; another live session in it is the brief's sameFolder.
       let sameFolder: Awaited<ReturnType<typeof sameFolderOf>> = null;
       if (!elsewhere) {

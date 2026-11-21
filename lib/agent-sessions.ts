@@ -22,6 +22,9 @@ import { moveSessionWork } from './session-move';
 //     dies at once when its computer is revoked or gets a new key (endDeviceSessions; the row keeps the hash of the key it was made with,
 //     so a token made in a race with a key replace is refused too), or when its owner leaves the organization (the route checks the
 //     role on every call). The session record survives a key replace.
+//   - Elsewhere: a session on project P started from a folder no project owns stays on P (the start route answers elsewhere: true and
+//     projectFolders). closeLeftBehind ends or moves what other ids and places of the same Claude Code session left open (never a busy
+//     row); scripts/merge-dup-sessions.mjs does the same for rows already there. Doc: docs/HANDOVER.md "One session, one id".
 //   - Rate limits: lib/mcp/policy.ts AGENT_PER_HOUR (new sessions per computer, briefs per token, renews per Claude session).
 //   - The device key opens a project only when a folder on that computer is linked to it (projectOnDevice).
 
@@ -132,10 +135,11 @@ export async function touchIdentity(identity: AgentIdentityDoc, o: { ccSession?:
  * A busy row (working, or at a permission prompt) is never closed, whoever's it is (plan: a second window of the session may be working
  * on its project while another window starts on another project; the sweep ends that row once it is idle), and a start_work row (no
  * Claude Code session id) is never touched.
- * Returns what a moved row was doing when the session's row on this project does not exist yet (the brief makes it after this):
- * pass it to restoreDoing after the brief.
+ * Returns what a moved row was doing when the session's row on this project does not exist yet (the brief makes it after this) and
+ * that row's id: pass both to restoreDoing after the brief. The doing stays on the old row until then, so a brief that fails loses
+ * nothing (reopenLeftBehind puts the row back open, and the next start moves it again).
  */
-export async function closeLeftBehind(s: Scope, sid: string, projectId: string | null): Promise<{ doing?: NonNullable<PresenceDoc['doing']> }> {
+export async function closeLeftBehind(s: Scope, sid: string, projectId: string | null): Promise<{ doing?: NonNullable<PresenceDoc['doing']>; from?: string }> {
   const rec = await identityById(sid);
   if (!rec || rec.ownerId !== s.userId) return {};
   const c = await scoped(s);
@@ -144,7 +148,7 @@ export async function closeLeftBehind(s: Scope, sid: string, projectId: string |
   const rows = await c.presence.find({ userId: s.userId, endedAt: { $exists: false }, $or: [{ session: sid }, ...(ccs.length ? [{ ccSession: { $in: ccs } }] : [])] }).limit(50).toArray();
   const toId = hookRowId(s.userId, sid, projectId);
   let to: PresenceDoc | null | undefined;
-  let left: { doing: NonNullable<PresenceDoc['doing']>; at: number } | undefined;
+  let left: { doing: NonNullable<PresenceDoc['doing']>; at: number; from: string } | undefined;
   for (const r of rows) {
     if (r._id === toId) continue; // the session's own row on this project
     if (r.session !== sid && !(r.ccSession && ccs.includes(r.ccSession))) continue;
@@ -156,19 +160,25 @@ export async function closeLeftBehind(s: Scope, sid: string, projectId: string |
       // The session's row does not exist yet, so the move matched nothing: the newest closed row's doing is handed back.
       if (r.doing && !moved.doing) {
         const at = r.lastSeen ? new Date(r.lastSeen).getTime() : 0;
-        if (!left || at > left.at) left = { doing: r.doing, at };
-        await c.presence.updateOne({ _id: r._id }, { $unset: { doing: '' } });
+        if (!left || at > left.at) left = { doing: r.doing, at, from: r._id };
       }
     } else await c.presence.updateOne({ _id: r._id, endedAt: { $exists: false } }, { $set: { endedAt: new Date(now) } });
   }
-  return left ? { doing: left.doing } : {};
+  return left ? { doing: left.doing, from: left.from } : {};
+}
+
+/** The brief failed after closeLeftBehind: the row that held the doing opens again (its doing is still on it), so the next start closes and moves it. */
+export async function reopenLeftBehind(s: Scope, left: { from?: string }): Promise<void> {
+  if (!left.from) return;
+  await (await scoped(s)).presence.updateOne({ _id: left.from }, { $unset: { endedAt: '', movedTo: '', swept: '' } });
 }
 
 /** Puts what a closed row was doing on the session's row on the project, when that row has nothing of its own (run after the brief made it). */
-export async function restoreDoing(s: Scope, sid: string, projectId: string, doing: NonNullable<PresenceDoc['doing']> | undefined): Promise<void> {
-  if (!doing) return;
+export async function restoreDoing(s: Scope, sid: string, projectId: string, left: { doing?: NonNullable<PresenceDoc['doing']>; from?: string }): Promise<void> {
+  if (!left.doing) return;
   const c = await scoped(s);
-  await c.presence.updateOne({ _id: hookRowId(s.userId, sid, projectId), doing: { $exists: false } }, { $set: { doing } });
+  await c.presence.updateOne({ _id: hookRowId(s.userId, sid, projectId), doing: { $exists: false } }, { $set: { doing: left.doing } });
+  if (left.from) await c.presence.updateOne({ _id: left.from }, { $unset: { doing: '' } });
 }
 
 /** The worker folder ids of a project on a computer, for a session that stays on its project from a folder that is not one of them. */
