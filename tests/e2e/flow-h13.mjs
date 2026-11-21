@@ -169,7 +169,7 @@ try {
   const T1 = r1.json?.token ?? '';
   const tOk = await post(T1, at(['rtchild']));
   const tOther = await post(T1, at(['rtparent']));
-  check('H13 route: a session token is for its own project: its own folder works, another project\'s folder is 403', tOk.status === 200 && tOther.status === 403, `${tOk.status} ${tOther.status}`);
+  check('H13 route: a session token at its own folder works; at a folder linked to another project it moves the same session there (same id, no 403)', tOk.status === 200 && tOther.status === 200 && tOther.json?.brief?.session === tOk.json?.brief?.session && tOther.json?.brief?.project?.id !== tOk.json?.brief?.project?.id, `${tOk.status} ${tOther.status}`);
   const bad = [['nine ids', at(Array.from({ length: 9 }, (_, i) => `rtfold${i}`))], ['a bad id', at(['a b!'])], ['too short', at(['ab'])], ['not an array', at('rtparent')]];
   for (const [what, b] of bad) check(`H13 route: folders with ${what} is a 400`, (await post(pc1.key, b)).status === 400);
 

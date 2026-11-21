@@ -49,7 +49,8 @@ import { stateOfProject } from '@/lib/data/states';
 // No State, feed, activity or Needs writes. The owner's own pages are told to refresh only when the state changes.
 // Rate limited per session token, lib/mcp/policy.ts AGENT_PER_HOUR.event (300 an hour). Free: an event that repeats the stored state
 // within a minute (answered with no write) and a notification kind that changes nothing; so many tool calls never use it up.
-//   200 { state } (state is null when the session's row is gone; `ignored: true` for an event that changes nothing)
+//   200 { state, expiresAt } (state is null when the session's row is gone; `ignored: true` for an event that changes nothing; expiresAt: when the
+//       token ends, moved forward by every call that finds under 23 hours left, lib/agent-auth.ts)
 //   400 bad body · 401 no or bad credential · 413 body too large · 429 over the hourly limit
 // proxy.ts lets this exact path through untouched: this route checks its own credential.
 
@@ -143,10 +144,10 @@ export async function POST(req: Request): Promise<Response> {
         const pid = session.projectId; // null: a session outside any project: it gets the messages addressed to it that no project holds
         if ((!pid || (await projectOnDevice(s, device.id, pid))) && (await reserveAgent('deliver', session.id))) {
           const d = (await deliverFor(s, session.id, pid, ev.event === 'stop' ? 'stop' : 'turn')).delivery;
-          if (d) return reply(200, { ...out, ...extra, deliver: d satisfies Delivery });
+          if (d) return reply(200, { ...out, ...extra, expiresAt: session.expiresAt.toISOString(), deliver: d satisfies Delivery });
         }
       }
-      return reply(200, { ...out, ...extra });
+      return reply(200, { ...out, ...extra, expiresAt: session.expiresAt.toISOString() });
     }
   } catch (err) {
     console.error('[agent/event]', err instanceof Error ? err.name : 'error'); // the name only: never a credential or body

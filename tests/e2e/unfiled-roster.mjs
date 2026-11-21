@@ -39,10 +39,10 @@ try {
   const qrow = await rawDb.collection('presence').findOne({ ccSession: { $ne: CC }, projectId: null });
   check('a session with no name is called "<folder> · Claude Code"', q.status === 200 && qrow?.label === 'orchestrator-2 · Claude Code' && qrow?.labelSource === 'fallback', JSON.stringify([q.status, qrow?.label]));
   const again = await call('/api/agent/start', pc.key, body(CC));
-  check('the same Claude Code session starting again is still one row (the old token ends)', again.status === 200 && (await rawDb.collection('presence').countDocuments({ ccSession: CC })) === 1 && (await rawDb.collection('agentSessions').countDocuments({ ccSession: CC })) === 1);
+  check('the same Claude Code session starting again is still one row and one session record (tokens are keys: the first one stays)', again.status === 200 && (await rawDb.collection('presence').countDocuments({ ccSession: CC })) === 1 && (await rawDb.collection('agentIdentities').countDocuments({ ccSessions: CC })) === 1 && (await rawDb.collection('agentSessions').countDocuments({ ccSession: CC })) === 2);
   const tok2 = again.json?.token;
-  check('…and the first token no longer opens anything', (await call('/api/agent/event', tok, { event: 'prompt' })).status === 401);
-  const sid2 = (await rawDb.collection('agentSessions').findOne({ ccSession: CC }))?._id;
+  check('…and the first token still opens the same session', (await call('/api/agent/event', tok, { event: 'prompt' })).status === 200);
+  const sid2 = (await rawDb.collection('agentIdentities').findOne({ ccSessions: CC }))?._id;
 
   // the token's reach
   const ev = await call('/api/agent/event', tok2, { event: 'prompt' });
@@ -78,12 +78,12 @@ try {
   const pid = (await must(MCP, 'add_project', { name: P, code: [{ remote: 'acme/filed-project' }] })).project.id;
   await rawDb.collection('workerFolders').insertOne({ _id: `${pc.id}:fold1`, deviceId: pc.id, folderId: 'fold1', name: 'C:/scratch/orchestrator', git: false, remote: null, projectId: pid, linkedAt: new Date(), seenAt: new Date(), missing: false, orgId: ME.orgId, ownerId: ME.userId });
   const filed = await call('/api/agent/start', tok2, { ...body(CC), folders: ['fold1'] });
-  check('the same session with its folder filed: the no-project token is refused (403), the PC key signs in again', filed.status === 403, `${filed.status} ${filed.text.slice(0, 100)}`);
+  check('the same session with its folder filed: the no-project token files it (same session id, no 403)', filed.status === 200 && filed.json?.brief?.session === sid2 && filed.json?.brief?.project?.name === P, `${filed.status} ${filed.text.slice(0, 100)}`);
   const f2 = await call('/api/agent/start', pc.key, { ...body(CC), folders: ['fold1'] });
-  check('the folder is filed: a brief and a new token for the project', f2.status === 200 && f2.json?.brief?.project?.name === P && /^wst_/.test(f2.json?.token ?? ''), f2.text.slice(0, 160));
-  check('…the no-project row and token are gone', (await rawDb.collection('presence').countDocuments({ ccSession: CC, projectId: null })) === 0 && (await rawDb.collection('agentSessions').countDocuments({ ccSession: CC, projectId: null })) === 0);
-  check('…and the session is one row, on the project', (await rawDb.collection('presence').countDocuments({ ccSession: CC })) === 1 && (await rawDb.collection('presence').findOne({ ccSession: CC }))?.projectId === pid);
-  check('…the old no-project token is refused now', (await call('/api/agent/event', tok2, { event: 'prompt' })).status === 401);
+  check('the folder is filed: a brief and a new token for the same session on the project', f2.status === 200 && f2.json?.brief?.project?.name === P && f2.json?.brief?.session === sid2 && /^wst_/.test(f2.json?.token ?? ''), f2.text.slice(0, 160));
+  check('…the no-project row has ended (no open row with no project)', (await rawDb.collection('presence').countDocuments({ ccSession: CC, projectId: null, endedAt: { $exists: false } })) === 0);
+  check('…and the session has one open row, on the project', (await rawDb.collection('presence').countDocuments({ ccSession: CC, endedAt: { $exists: false } })) === 1 && (await rawDb.collection('presence').findOne({ ccSession: CC, endedAt: { $exists: false } }))?.projectId === pid);
+  check('…the old no-project token is the same session key: its events go to the project row', (await call('/api/agent/event', tok2, { event: 'prompt' })).status === 200 && !!(await rawDb.collection('presence').findOne({ ccSession: CC, projectId: pid }))?.activity);
 
   // a session of its own person only: another key for the same user sees it, a person of another kind cannot address it by project
   const agent = await mkKey({ agent: 'claude-code', name: 'unfiled agent' });

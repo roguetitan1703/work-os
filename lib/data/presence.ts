@@ -65,13 +65,23 @@ export const addrShaped = (v: string) => /^s-[a-z2-9]{5}$/i.test(v.trim());
 /** Does this look like a session id (a UUID, or the 32 hex of a hook session) rather than a label? Such a value is never kept as a label. */
 export const idShaped = (v: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v.trim()) || /^[0-9a-f]{32}$/i.test(v.trim());
 
+/** A row that ended with a `movedTo` (its work went to another session, lib/data/pickup.ts) is never the reader: its successor is (a few steps at most). */
+async function followMoved(c: Awaited<ReturnType<typeof scoped>>, userId: string, row: PresenceDoc | null): Promise<PresenceDoc | null> {
+  for (let n = 0; row && row.endedAt && row.movedTo && n < 4; n++) {
+    const next = await c.presence.findOne({ userId, $or: [{ session: row.movedTo }, { key: row.movedTo }] }, { sort: { lastSeen: -1 } });
+    if (!next || next._id === row._id) return row;
+    row = next;
+  }
+  return row;
+}
+
 /**
  * The presence row of a reading session, for messages: by session id; with no id only a row that start_work made with no
  * id (never a sibling session's row of the same key), with no time limit.
  */
 export async function readerRow(s: Scope, i: Ident): Promise<PresenceDoc | null> {
   const c = await scoped(s);
-  if (i.session) return c.presence.findOne({ userId: i.userId, session: i.session }, { sort: { lastSeen: -1 } });
+  if (i.session) return followMoved(c, i.userId, await c.presence.findOne({ userId: i.userId, session: i.session }, { sort: { lastSeen: -1 } }));
   if (i.keyId) return c.presence.findOne({ userId: i.userId, keyId: i.keyId, session: { $exists: false } }, { sort: { lastSeen: -1 } });
   return null;
 }
@@ -226,6 +236,7 @@ export async function presentRow(s: Scope, i: Ident): Promise<PresenceDoc | null
 
 /** Heartbeat: at most one write a minute per row. */
 export async function touchPresence(s: Scope, row: PresenceDoc): Promise<void> {
+  if (row.endedAt && row.movedTo) return; // an ended row whose work moved on is not brought back by a late call from its old id
   const now = Date.now();
   if (now - row.lastSeen.getTime() < REFRESH_MS) return;
   await (await scoped(s)).presence.updateOne({ _id: row._id, lastSeen: { $lt: new Date(now - REFRESH_MS) } }, { $set: { lastSeen: new Date(now) } });
@@ -396,7 +407,7 @@ async function recordState(
   const at = new Date(Math.min(now + SKEW_MS, Math.max(now - SKEW_MS, Number.isFinite(ev.at) ? ev.at! : now)));
   const before = await c.presence.findOneAndUpdate(
     // The idle wait (notify idle_prompt) never replaces a question the turn ended with: only the next prompt or tool does.
-    { _id, userId: s.userId, $or: [{ activity: { $exists: false } }, { 'activity.at': { $lt: at } }], ...(idleWait(ev) ? { 'activity.why': { $ne: 'question' as const } } : {}) },
+    { _id, userId: s.userId, movedTo: { $exists: false }, $or: [{ activity: { $exists: false } }, { 'activity.at': { $lt: at } }], ...(idleWait(ev) ? { 'activity.why': { $ne: 'question' as const } } : {}) },
     { $set: { activity: { state: next.state, at, ...(next.why ? { why: next.why } : {}), ...(ask ? { ask } : {}), ...(ev.event === 'tool-start' ? { open: true as const } : {}) }, lastSeen: new Date(now), ...(ev.event === 'prompt' ? { promptAt: at } : {}), ...(ACTIVE_EVENTS.has(ev.event) ? { activeAt: at } : {}) } },
     { returnDocument: 'before', projection: { activity: 1 } },
   );

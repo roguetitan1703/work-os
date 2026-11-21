@@ -112,6 +112,7 @@ alerts-once|alerts-once.mjs|none|discord
 flow-b4|flow-b4.mjs|none|plain
 flow-hooks|flow-hooks.mjs|none|plain
 agent-start|agent-start.mjs|none|plain
+agent-renew|agent-renew.mjs|none|plain
 flow-h2|flow-h2.mjs|none|plain
 claude-usage|claude-usage.mjs|none|plain
 agent-state|agent-state.mjs|none|plain
