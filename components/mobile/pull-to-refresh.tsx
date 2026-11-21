@@ -14,6 +14,8 @@ export function PullToRefresh({ targetId }: { targetId: string }) {
   const router = useRouter();
   const [pull, setPull] = useState(0);
   const [refreshing, start] = useTransition();
+  const [hold, setHold] = useState(false);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startY = useRef<number | null>(null);
   const pullRef = useRef(0);
 
@@ -41,6 +43,10 @@ export function PullToRefresh({ targetId }: { targetId: string }) {
       if (pullRef.current >= TRIGGER) {
         navigator.vibrate?.(10);
         start(() => router.refresh());
+        // Keep the spinner up for 500 ms so a fast refresh does not look like nothing happened.
+        setHold(true);
+        if (holdTimer.current) clearTimeout(holdTimer.current);
+        holdTimer.current = setTimeout(() => setHold(false), 500);
       }
       startY.current = null;
       pullRef.current = 0;
@@ -58,18 +64,21 @@ export function PullToRefresh({ targetId }: { targetId: string }) {
     };
   }, [targetId, router]);
 
-  const visible = refreshing || pull > 0;
-  const progress = refreshing ? 1 : Math.min(1, pull / TRIGGER);
+  useEffect(() => () => { if (holdTimer.current) clearTimeout(holdTimer.current); }, []);
+
+  const busy = refreshing || hold;
+  const visible = busy || pull > 0;
+  const progress = busy ? 1 : Math.min(1, pull / TRIGGER);
   return (
     <div
       aria-hidden={!visible}
       className="md:hidden pointer-events-none fixed left-1/2 z-40 -translate-x-1/2 transition-opacity"
-      style={{ top: `calc(env(safe-area-inset-top) + ${refreshing ? 16 : Math.max(0, pull - 28)}px)`, opacity: visible ? 1 : 0 }}
+      style={{ top: `calc(env(safe-area-inset-top) + ${busy ? 16 : Math.max(0, pull - 28)}px)`, opacity: visible ? 1 : 0 }}
     >
       <div className="w-10 h-10 rounded-full bg-background border border-border shadow-md flex items-center justify-center">
         <RefreshCw
-          className={refreshing ? 'w-5 h-5 animate-spin text-foreground' : 'w-5 h-5 text-muted-foreground'}
-          style={refreshing ? undefined : { transform: `rotate(${progress * 270}deg)`, opacity: 0.4 + progress * 0.6 }}
+          className={busy ? 'w-5 h-5 animate-spin text-foreground' : 'w-5 h-5 text-muted-foreground'}
+          style={busy ? undefined : { transform: `rotate(${progress * 270}deg)`, opacity: 0.4 + progress * 0.6 }}
         />
       </div>
     </div>
