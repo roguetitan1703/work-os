@@ -169,7 +169,7 @@ function fromWorker(w: WorkerRow, c: SessionRow | undefined, dup = false): Sessi
   if (c && state !== 'off' && overviewState(c) === 'starting') state = 'starting';
   // Subagents are the computer's word about one Claude session, so they belong to the one row matched to it: another row of the
   // same Claude session (dup) takes none, and so is never made Working by them.
-  const subagents = state === 'off' || dup ? 0 : Math.max(w.subagents ?? 0, c?.subagents ?? 0);
+  const subagents = state === 'off' ? 0 : Math.max(w.subagents ?? 0, dup ? 0 : (c?.subagents ?? 0));
   // Display only (the session itself stays idle, so a message still wakes it): a lead whose subagents run reads as working.
   if (state === 'idle' && subagents > 0) state = 'working';
   else if (state === 'idle' && w.quiet) state = 'quiet';
@@ -241,14 +241,26 @@ export function mergeSessions(workers: WorkerRow[], rows: SessionRow[], o: { tz:
   // session reported), and only on the viewer's own rows, which are the only ones the computer list has.
   const bySession = new Map(rows.map(r => [r.key.slice(r.deviceId.length + 1), r]));
   const used = new Set<string>();
-  const seenCc = new Set<string>();
+  // Of the rows of one Claude session, the roster's owner takes the computer row: the one with subagents, else the newest open row.
+  const owner = new Map<string, WorkerRow>();
+  const better = (a: WorkerRow, b: WorkerRow) => {
+    const sa = (a.subagents ?? 0) > 0, sb = (b.subagents ?? 0) > 0;
+    if (sa !== sb) return sa;
+    const oa = a.state !== 'off', ob = b.state !== 'off';
+    if (oa !== ob) return oa;
+    return Date.parse(a.lastSeen) > Date.parse(b.lastSeen);
+  };
+  for (const w of workers) {
+    if (!w.cc) continue;
+    const o = owner.get(w.cc);
+    if (!o || better(w, o)) owner.set(w.cc, w);
+  }
   const groups: SessionItem[][] = [];
   for (const w of workers) {
-    const hit = w.cc ? bySession.get(w.cc) : undefined;
+    const dup = !!w.cc && owner.get(w.cc) !== w;
+    const hit = w.cc && !dup ? bySession.get(w.cc) : undefined;
     const c = hit && !used.has(hit.key) ? hit : undefined;
     if (c) used.add(c.key);
-    const dup = !!w.cc && seenCc.has(w.cc);
-    if (w.cc) seenCc.add(w.cc);
     const it = fromWorker(w, c, dup);
     if (w.depth === 1 && groups.length) groups[groups.length - 1].push(it);
     else groups.push([it]);

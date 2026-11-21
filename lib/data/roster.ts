@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import type { PresenceDoc, PresenceState, StateLine } from '../db';
 import { orgWide, scoped, type Scope } from '../scope';
 import { memberNames } from '../people';
-import { presenceState, isQuiet, lastActive, WORKING_MIN, GONE_MIN, type DaemonSays } from './presence-state';
+import { presenceState, claimDaemon, isQuiet, lastActive, WORKING_MIN, GONE_MIN, type DaemonSays } from './presence-state';
 import { lineHolder } from './lanes';
 import { shortAddress } from './presence';
 import { openNeedRows } from './roster-needs';
@@ -107,7 +107,9 @@ export async function unblockedNext(s: Scope, ids?: string[]): Promise<Map<strin
 
 async function loadRaw(s: Scope, hours: number, projectId?: string): Promise<Raw[]> {
   const c = await scoped(s);
-  const rows = await c.presence.find({ lastSeen: { $gt: new Date(Date.now() - hours * 3_600_000) }, ...(projectId ? { projectId } : {}) }).sort({ lastSeen: -1 }).limit(300).toArray();
+  const since = new Date(Date.now() - hours * 3_600_000);
+  const found = await c.presence.find({ lastSeen: { $gt: since } }).sort({ lastSeen: -1 }).limit(300).toArray();
+  const rows = projectId ? found.filter(r => r.projectId === projectId) : found;
   if (!rows.length) return [];
   // Where the daemon reports, a session whose process still runs is not off however quiet it is, and one it lists as
   // stopped is off at once. The daemon belongs to the worker's own person, so it is read for the whole organization
@@ -131,21 +133,15 @@ async function loadRaw(s: Scope, hours: number, projectId?: string): Promise<Raw
       }
     }
   }
-  // Several rows can share one Claude session (a project move, a restart). The daemon's 'running' and its subagents belong to the
-  // newest open row only (rows are newest first); the older ones are judged by their own events. 'stopped' still ends them all.
-  const taken = new Set<string>();
-  return rows.map(row => {
-    const k = ccOf(row) ? `${row.machine}:${ccOf(row)}` : '';
-    let daemon: DaemonSays = (k && says.get(k)) || 'unknown';
-    let subagents = (k && subs.get(k)) || 0;
-    if (k && !row.endedAt) {
-      if (taken.has(k)) {
-        if (daemon === 'running') daemon = 'unknown';
-        subagents = 0;
-      } else taken.add(k);
-    }
-    return { row, daemon, subagents };
-  });
+  // The daemon's 'running' and subagents go to the newest open row of the session, picked across all of the person's rows
+  // (whatever the project, and including rows the viewer cannot read); then the page's own project is shown (claimDaemon).
+  const keys = [...new Map(rows.flatMap(r => (ccOf(r) ? [[`${r.machine}:${ccOf(r)}`, { machine: r.machine, id: ccOf(r) }] as const] : []))).values()];
+  const all = keys.length
+    ? await (await orgWide(s.orgId)).presence
+        .find({ lastSeen: { $gt: since }, $or: keys.map(({ machine, id }) => ({ machine, $or: [{ ccSession: id }, { session: id }] })) }, { projection: { machine: 1, ccSession: 1, session: 1, endedAt: 1, lastSeen: 1 } })
+        .toArray()
+    : [];
+  return claimDaemon(all, rows, says, subs);
 }
 
 /** The kind of client, for people who are not the key's owner (a key's name is its owner's own label). */
@@ -170,7 +166,7 @@ function buildWorkers(s: Scope, raw: Raw[], x: Ctx): WorkerRow[] {
   const rows: (WorkerRow & { _parent?: string; _uid: string; _rid: string; _sess: string | null })[] = raw
     .filter(r => r.row.projectId === null || x.pname.has(r.row.projectId))
     .map(({ row, daemon, subagents }) => {
-      const st = presenceState(row, { now, daemon, needs: x.needs.has(row._id) });
+      const st = presenceState(row, { now, daemon, needs: x.needs.has(row._id), hookIdle: true });
       const state = st.state;
       const mine = row.userId === s.userId;
       return {

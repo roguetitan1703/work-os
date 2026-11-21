@@ -14,7 +14,7 @@ import type { PresenceState } from '../db';
 //                            subagent's call before the gate, must not keep a session working for ever); after that the rules above apply. Any later event (tool, stop, end, prompt, notify) replaces activity and clears open.
 //   waiting at a prompt   -> waiting (why: prompt) while alive, else off
 //   on / idle             -> an open Need makes it waiting (why: need); else on / idle while alive, else off
-// A row with no `activity` and hook protocol 3 or more is idle while alive (never Working); the daemon's 'running' only keeps it from off.
+// With hookIdle (the roster and the Sessions list only): a row with no `activity` and hook protocol 3 or more is idle while alive (never Working); the daemon's 'running' only keeps it from off.
 // A row with no `activity` (claude.ai chat, API, an old hook, a WORK_OS_KEY hook) keeps the call-based rules:
 //   off after 30 quiet minutes unless the daemon says it runs; an open Need -> waiting; seen in the last 10 minutes
 //   -> working, else idle.
@@ -37,7 +37,11 @@ export type StateRow = {
 
 export type StateResult = { state: PresenceState; /** Only for waiting. */ why?: 'need' | 'prompt' | 'question'; /** When the state began: activity.at, else lastSeen. */ since: Date };
 
-export function presenceState(row: StateRow, o: { now: number; daemon?: DaemonSays; needs?: boolean }): StateResult {
+/**
+ * `hookIdle`: a row with hook protocol 3 or more and no activity is idle, never Working (piece D). Only the roster and the Sessions
+ * list ask for it; routing, lanes, pickup, needs and messages (busy()) keep the call-based rule.
+ */
+export function presenceState(row: StateRow, o: { now: number; daemon?: DaemonSays; needs?: boolean; hookIdle?: boolean }): StateResult {
   const daemon = o.daemon ?? 'unknown';
   const a = row.activity ?? null;
   const since = a ? a.at : row.lastSeen;
@@ -47,7 +51,7 @@ export function presenceState(row: StateRow, o: { now: number; daemon?: DaemonSa
     if (ageMin > GONE_MIN && daemon !== 'running') return { state: 'off', since };
     if (o.needs) return { state: 'waiting', why: 'need', since };
     // A row of a current hook (3 and up) reports its work as events: with none it is open but idle, whatever its last call was.
-    if ((row.hook ?? 0) >= 3) return { state: 'idle', since };
+    if (o.hookIdle && (row.hook ?? 0) >= 3) return { state: 'idle', since };
     return { state: ageMin <= WORKING_MIN ? 'working' : 'idle', since };
   }
   const ageMin = (o.now - a.at.getTime()) / 60_000;
@@ -62,6 +66,35 @@ export function presenceState(row: StateRow, o: { now: number; daemon?: DaemonSa
   if (!alive) return { state: 'off', since };
   if (o.needs) return { state: 'waiting', why: 'need', since };
   return { state: 'idle', since }; // on (started, no prompt yet) and idle are one state: open, not working
+}
+
+export type ClaimRow = { _id: string; machine: string; ccSession?: string | null; session?: string | null; endedAt?: Date | null; lastSeen: Date };
+const ccKey = (r: ClaimRow) => ((r.ccSession ?? r.session) ? `${r.machine}:${r.ccSession ?? r.session}` : '');
+
+/**
+ * Several rows can share one Claude session (a project move, a restart). The daemon's 'running' and its subagents belong to the
+ * newest open row only; the older ones are judged by their own events. 'stopped' still ends them all. `all` is every row of the
+ * person for those sessions, whatever the project or who may read it (the owner is picked among them); `shown` is what the caller
+ * lists. A shown row that is not the owner loses 'running' and its subagents even when the owner is not shown.
+ */
+export function claimDaemon<R extends ClaimRow>(all: ClaimRow[], shown: R[], says: Map<string, DaemonSays>, subs: Map<string, number>): { row: R; daemon: DaemonSays; subagents: number }[] {
+  const owner = new Map<string, ClaimRow>();
+  for (const r of all) {
+    const k = ccKey(r);
+    if (!k || r.endedAt) continue;
+    const o = owner.get(k);
+    if (!o || r.lastSeen.getTime() > o.lastSeen.getTime() || (r.lastSeen.getTime() === o.lastSeen.getTime() && r._id > o._id)) owner.set(k, r);
+  }
+  return shown.map(row => {
+    const k = ccKey(row);
+    let daemon: DaemonSays = (k && says.get(k)) || 'unknown';
+    let subagents = (k && subs.get(k)) || 0;
+    if (k && !row.endedAt && owner.get(k)?._id !== row._id) {
+      if (daemon === 'running') daemon = 'unknown';
+      subagents = 0;
+    }
+    return { row, daemon, subagents };
+  });
 }
 
 /** What the hook reports (POST /api/agent/event). The server decides the state from the event; the hook never sends one. */
