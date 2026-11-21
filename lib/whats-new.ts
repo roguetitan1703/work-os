@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'no-false-working',
+    date: '2026-11-21',
+    title: 'No false Working on idle sessions',
+    line: 'A session that is only open, or one of several rows for the same Claude session, no longer shows as Working.',
+    where: 'Claude › Sessions',
+    href: '/claude',
+  },
+  {
     id: 'inbox-gone',
     date: '2026-11-21',
     title: 'The old Messages for you inbox is gone',
