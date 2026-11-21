@@ -45,6 +45,14 @@ export const WHATS_NEW: readonly WhatsNewEntry[] = [
     href: '/today',
   },
   {
+    id: 'org-orders-in-notes',
+    date: '2026-11-21',
+    title: "The organization's Orders on Notes",
+    line: "The organization's Orders sit under its name at the top of Notes.",
+    where: 'Notes, at the top',
+    href: '/notes',
+  },
+  {
     id: 'context-warning',
     date: '2026-11-21',
     title: 'Context warning per project',

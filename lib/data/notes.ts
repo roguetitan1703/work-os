@@ -56,6 +56,8 @@ export type Note = NoteRef & {
   /** Which layer of Orders this page is, if any (lib/data/orders.ts), and who owns it. */
   orders?: 'org' | 'project' | 'person';
   ownerId?: string;
+  /** Who may read the page (the list and hydrate set it). */
+  visibility?: 'org' | 'private' | 'members';
 };
 
 const live: Filter<NoteDoc> = { deletedAt: null };
@@ -153,6 +155,7 @@ async function hydrate(c: Collections, docs: ListedNoteDoc[]): Promise<Note[]> {
       createdBy: asActor(d.createdBy),
       ...(d.orders ? { orders: d.orders } : {}),
       ownerId: d.ownerId,
+      ...(d.visibility ? { visibility: d.visibility } : {}),
     };
   });
 }
@@ -209,7 +212,7 @@ export async function listNotes(s: Scope, f: NoteFilter = {}): Promise<{ total: 
   }
   // Lists never need a whole page: keep a prefix of the text (for the first line) and the full length.
   const docs = (await c.notes
-    .find(q, { projection: { title: 1, parentId: 1, taskId: 1, projectId: 1, archived: 1, createdBy: 1, createdAt: 1, updatedBy: 1, updatedAt: 1, deletedAt: 1, shelf: 1, orders: 1, 'handover.by': 1, body: { $substrCP: ['$body', 0, 500] }, _chars: { $strLenCP: '$body' } } })
+    .find(q, { projection: { title: 1, parentId: 1, taskId: 1, projectId: 1, archived: 1, createdBy: 1, createdAt: 1, updatedBy: 1, updatedAt: 1, deletedAt: 1, shelf: 1, orders: 1, visibility: 1, 'handover.by': 1, body: { $substrCP: ['$body', 0, 500] }, _chars: { $strLenCP: '$body' } } })
     .sort({ updatedAt: -1 })
     .toArray()) as ListedNoteDoc[];
   let notes = await hydrate(c, docs);

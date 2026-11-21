@@ -1090,6 +1090,12 @@ try {
     check('Orders: the organization Orders reach a teammate’s start_work', start.ok && start.text.includes(CANARIES.find(c => c.tag === 'shordersbody').s), start.text.slice(0, 200));
     const xs = await mcpCall(X.chat, 'start_work', { project: S.projectName });
     check('Orders: the other organization cannot start work on it, so reads none of it', !xs.ok);
+    // The Notes page lists the organization's Orders in a section of their own: a teammate sees it, another organization never does.
+    const tNotes = await req('GET', '/notes', { cookie: T.cookie });
+    check('Orders: a teammate\'s Notes page has the organization section with the Orders note (control)', tNotes.status === 200 && tNotes.text.includes('data-org-orders') && tNotes.text.includes(`/notes/${S.ordersNote}`), String(tNotes.status));
+    const xNotes = await req('GET', '/notes', { cookie: X.cookie });
+    scan('X', 'notes page (orders section)', xNotes.text);
+    check('Orders: the other organization\'s Notes page has no organization section and no link to the Orders note', xNotes.status === 200 && !xNotes.text.includes('data-org-orders') && !xNotes.text.includes(S.ordersNote), String(xNotes.status));
   }
   // Slice 7: the roster follows the project. A worker row and a project's "could be running" line are seen only by those who can read the project.
   {

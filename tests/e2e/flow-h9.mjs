@@ -327,6 +327,45 @@ try {
     await tpg.waitForSelector('[data-orders-changes]', { timeout: 20000 });
     check('5b: a teammate sees the Changes but no Undo or Restore button', (await tpg.locator('li[data-orders-version]').count()) > 0 && (await tpg.locator('[data-orders-undo]').count()) === 0);
     await tctx.close();
+    // ---- 5c: Notes lists the organization's Orders under the organization's name, above the list (and in it) ----
+    const orgNm = String((await rawDb.collection('organization').findOne({}))?.name ?? '');
+    const shown = (p, sel) => p.locator(`${sel}a[href="/notes/${org}"]`).evaluateAll(els => els.filter(e => e.getClientRects().length > 0).length);
+    for (const [kind, vp] of [['desktop', { width: 1280, height: 800 }], ['phone', { width: 390, height: 844 }]]) {
+      const c5 = await bro.newContext(kind === 'phone' ? { viewport: vp, deviceScaleFactor: 2, isMobile: true, hasTouch: true } : { viewport: vp });
+      const p5 = await c5.newPage();
+      await login(p5, { email: 'tess-h9@example.test', phone: kind === 'phone', next: '/notes' });
+      await p5.waitForSelector('[data-org-orders]', { timeout: 20000 }).catch(() => {});
+      check(`5c: ${kind}: a member who does not own the organization sees the section, headed by its name, with the Orders note`, (await p5.locator('[data-org-orders]').count()) === 1 && orgNm !== '' && (await p5.locator('[data-org-orders] h2').textContent()) === orgNm && (await shown(p5, '[data-org-orders] ')) === 1, orgNm);
+      check(`5c: ${kind}: the Orders note is in the normal list too`, (await shown(p5, '')) === 2);
+      await p5.goto(`${B}/notes?project=${(await rawDb.collection('projects').findOne({ name: 'H9 One' }))._id}`);
+      await p5.waitForLoadState('networkidle');
+      check(`5c: ${kind}: no section under a project filter, the note is still listed`, (await p5.locator('[data-org-orders]').count()) === 0 && (await shown(p5, '')) === 1);
+      await p5.goto(`${B}/notes?state=archived`);
+      check(`5c: ${kind}: no section on the archived list`, (await p5.locator('[data-org-orders]').count()) === 0);
+      await c5.close();
+    }
+    for (const [kind, vp] of [['desktop', { width: 1280, height: 800 }], ['phone', { width: 390, height: 844 }]]) {
+      for (const scheme of ['light', 'dark']) {
+        const c5 = await bro.newContext(kind === 'phone' ? { viewport: vp, deviceScaleFactor: 2, isMobile: true, hasTouch: true, colorScheme: scheme } : { viewport: vp, colorScheme: scheme });
+        const p5 = await c5.newPage();
+        await login(p5, { email: 'tess-h9@example.test', phone: kind === 'phone', next: '/notes' });
+        await p5.waitForSelector('[data-org-orders]', { timeout: 20000 });
+        await p5.screenshot({ path: SP + '/notes-org-' + kind + '-' + scheme + '.png', fullPage: true });
+        await c5.close();
+      }
+    }
+    // With the project private, nobody else sees the section.
+    await must(MCP, 'update_project', { project: 'H9 One', visibility: 'private' });
+    {
+      const c5 = await bro.newContext({ viewport: { width: 1280, height: 800 } });
+      const p5 = await c5.newPage();
+      await login(p5, { email: 'tess-h9@example.test', next: '/notes' });
+      await p5.waitForTimeout(500);
+      check('5c: with the project private, a teammate sees no section and no link to the note', (await p5.locator('[data-org-orders]').count()) === 0 && (await p5.locator(`a[href="/notes/${org}"]`).count()) === 0);
+      await c5.close();
+    }
+    await must(MCP, 'update_project', { project: 'H9 One', visibility: 'org' });
+    check('5c: the project shared again, the note is back to shared', (await noteDoc(org)).visibility === 'org');
   } finally {
     await bro.close();
   }
