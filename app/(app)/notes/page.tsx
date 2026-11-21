@@ -2,6 +2,7 @@ import Link from '@/components/intent-link';
 import { ChevronRight, FileText, FolderOpen, ListTodo } from 'lucide-react';
 import { listNotes, type Note } from '@/lib/data/notes';
 import { orgName } from '@/lib/people';
+import { MGroupTitle } from '@/components/mobile/sub-header';
 import { listProjectsBasic } from '@/lib/data/projects';
 import { fmtAgo } from '@/lib/format';
 import { requireScope } from '@/lib/caller';
@@ -99,7 +100,7 @@ export default async function NotesPage({ searchParams }: Props) {
 
       {orgOrders.length > 0 && (
         <section data-org-orders className="space-y-2">
-          <h2 className="text-sm font-semibold text-foreground">{orgTitle}</h2>
+          <MGroupTitle>{orgTitle}</MGroupTitle>
           <NoteLists notes={orgOrders} />
         </section>
       )}

@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
+import { ObjectId } from 'mongodb';
 import { B, EMAIL, ME, MCP, PW, SP, check, finish, launch, login, makeUser, mkDevice, mkKey, okO, overflow, rawDb } from './lib.mjs';
 import { mcpH as mcpRaw, must, markOrders, hookRow } from './flow-lib.mjs';
 // The holder's Claude Code writes Orders only from a real session (H9 review): its calls carry one session id.
@@ -328,7 +329,9 @@ try {
     check('5b: a teammate sees the Changes but no Undo or Restore button', (await tpg.locator('li[data-orders-version]').count()) > 0 && (await tpg.locator('[data-orders-undo]').count()) === 0);
     await tctx.close();
     // ---- 5c: Notes lists the organization's Orders under the organization's name, above the list (and in it) ----
-    const orgNm = String((await rawDb.collection('organization').findOne({}))?.name ?? '');
+    const idIn = id => ({ $in: [new ObjectId(id), String(id)] });
+    const memberRow = await rawDb.collection('member').findOne({ userId: idIn(T.userId) });
+    const orgNm = String((await rawDb.collection('organization').findOne({ _id: idIn(memberRow?.organizationId) }))?.name ?? '');
     const shown = (p, sel) => p.locator(`${sel}a[href="/notes/${org}"]`).evaluateAll(els => els.filter(e => e.getClientRects().length > 0).length);
     for (const [kind, vp] of [['desktop', { width: 1280, height: 800 }], ['phone', { width: 390, height: 844 }]]) {
       const c5 = await bro.newContext(kind === 'phone' ? { viewport: vp, deviceScaleFactor: 2, isMobile: true, hasTouch: true } : { viewport: vp });
@@ -356,15 +359,17 @@ try {
     }
     // With the project private, nobody else sees the section.
     await must(MCP, 'update_project', { project: 'H9 One', visibility: 'private' });
-    {
+    try {
       const c5 = await bro.newContext({ viewport: { width: 1280, height: 800 } });
       const p5 = await c5.newPage();
       await login(p5, { email: 'tess-h9@example.test', next: '/notes' });
-      await p5.waitForTimeout(500);
-      check('5c: with the project private, a teammate sees no section and no link to the note', (await p5.locator('[data-org-orders]').count()) === 0 && (await p5.locator(`a[href="/notes/${org}"]`).count()) === 0);
+      // The page rendered (its "N notes" count shows) before the section is asserted absent.
+      await p5.waitForFunction(() => /\d+ notes/.test(document.body.innerText), null, { timeout: 20000 });
+      check('5c: with the project private, a teammate sees no section and no link to the note', p5.url().includes('/notes') && (await p5.locator('[data-org-orders]').count()) === 0 && (await p5.locator(`a[href="/notes/${org}"]`).count()) === 0);
       await c5.close();
+    } finally {
+      await must(MCP, 'update_project', { project: 'H9 One', visibility: 'org' });
     }
-    await must(MCP, 'update_project', { project: 'H9 One', visibility: 'org' });
     check('5c: the project shared again, the note is back to shared', (await noteDoc(org)).visibility === 'org');
   } finally {
     await bro.close();
