@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'session-keeps-one-row',
+    date: '2026-11-22',
+    title: 'A session keeps one row and its work',
+    line: 'When a Claude session restarts, clears or moves to another project, it stays one session with its messages, Needs and what it is doing.',
+    where: 'Claude › Sessions',
+    href: '/claude',
+  },
+  {
     id: 'no-false-working',
     date: '2026-11-21',
     title: 'No false Working on idle sessions',

@@ -161,6 +161,9 @@ try {
   await off('pkA6', 45);
   await off('pkA7', 10);
   await off('pkTs', 45);
+  // A message sent to nobody in particular, addressed to every session present then; the gone session had read it, the Now holder had not.
+  const bcId = randomUUID();
+  await rawDb.collection('messages').insertOne({ _id: bcId, orgId: ME.orgId, ownerId: ME.userId, visibility: 'org', sharedWith: [], projectId: PID, from: { userId: ME.userId, word: 'agent', session: 'pkS' }, kind: 'fyi', body: 'PK broadcast', refs: {}, thread: bcId, status: 'seen', src: K('pkS'), toSids: [K('pkA6'), K('pkH')], seenBy: [K('pkA6')], at: ago(60), createdAt: ago(60) });
   const keyH = (await row('pkH')).keyId;
   const vSweep = (await stateDoc()).version;
   const d1 = await call('/api/agent/event', LTOK, { event: 'prompt', deliver: true });
@@ -168,6 +171,7 @@ try {
   const n6ob = await needDoc(n6o.id);
   const n6ab = await needDoc(n6a.id);
   check('sweep: the Needs of the session that was off 45 minutes (open and answered) go to the Now holder, with its key', n6ob.from.session === 'pkH' && n6ab.from.session === 'pkH' && n6ob.from.keyId === keyH, JSON.stringify([n6ob.from, n6ab.from]));
+  check("sweep: the gone session's read mark does not make the live target treat a broadcast as read (it stays unread for it)", !((await msgDoc(bcId)).seenBy ?? []).includes(K('pkH')), JSON.stringify((await msgDoc(bcId)).seenBy));
   check('sweep: its unread message is addressed to the Now holder', JSON.stringify((await msgDoc(m6.id)).toSids) === JSON.stringify([`${ME.userId}:pkH`]));
   st = await stateDoc();
   const l2 = st.next.find(l => l.id === L2);
