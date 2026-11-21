@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'share-note-link',
+    date: '2026-11-21',
+    title: "Share a page's link from its top bar",
+    line: "The Share button on a note opens your phone's share sheet, or copies the link on a computer.",
+    where: 'A note, top right',
+    href: '/notes',
+  },
+  {
     id: 'new-app-icon',
     date: '2026-11-21',
     title: 'A new Work OS icon',

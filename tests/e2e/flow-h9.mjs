@@ -357,6 +357,36 @@ try {
         await c5.close();
       }
     }
+    // ---- 5d: the note's Share button: the share sheet where there is one, else the link on the clipboard (4 views by eye) ----
+    for (const [kind, vp] of [['desktop', { width: 1280, height: 800 }], ['phone', { width: 390, height: 844 }]]) {
+      for (const scheme of ['light', 'dark']) {
+        const c5 = await bro.newContext({ viewport: vp, colorScheme: scheme, permissions: ['clipboard-read', 'clipboard-write'], ...(kind === 'phone' ? { deviceScaleFactor: 2, isMobile: true, hasTouch: true } : {}) });
+        const p5 = await c5.newPage();
+        await p5.addInitScript(() => { Object.defineProperty(navigator, 'share', { value: undefined, configurable: true }); });
+        await login(p5, { email: 'tess-h9@example.test', phone: kind === 'phone', next: '/notes/' + org });
+        await p5.waitForSelector('[data-share-link]', { timeout: 20000 });
+        const sb = await p5.locator('[data-share-link]').boundingBox();
+        check('5d: ' + kind + ' ' + scheme + ': the Share button is on the note page, as large as its neighbours (' + (kind === 'phone' ? 44 : 32) + 'px)', !!sb && Math.round(sb.width) === (kind === 'phone' ? 44 : 32) && Math.round(sb.height) === (kind === 'phone' ? 44 : 32), JSON.stringify(sb));
+        await p5.locator('[data-share-link]').click();
+        await p5.waitForFunction(() => document.body.innerText.includes('Link copied'), null, { timeout: 5000 }).catch(() => {});
+        const clip = await p5.evaluate(() => navigator.clipboard.readText());
+        check('5d: ' + kind + ' ' + scheme + ': without a share sheet the full note URL is on the clipboard and the page says Link copied', clip === B + '/notes/' + org && (await p5.locator('body').innerText()).includes('Link copied'), clip);
+        await p5.screenshot({ path: SP + '/note-share-' + kind + '-' + scheme + '.png' });
+        await c5.close();
+      }
+    }
+    {
+      const c5 = await bro.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+      const p5 = await c5.newPage();
+      await p5.addInitScript(() => { window.__shared = []; Object.defineProperty(navigator, 'share', { value: async d => { window.__shared.push(d); }, configurable: true }); });
+      await login(p5, { email: 'tess-h9@example.test', phone: true, next: '/notes/' + org });
+      await p5.waitForSelector('[data-share-link]', { timeout: 20000 });
+      await p5.locator('[data-share-link]').tap();
+      await p5.waitForFunction(() => window.__shared.length > 0, null, { timeout: 5000 }).catch(() => {});
+      const shared = await p5.evaluate(() => window.__shared);
+      check('5d: with a share sheet, navigator.share gets the note title and its full URL', shared.length === 1 && shared[0].url === B + '/notes/' + org && typeof shared[0].title === 'string' && shared[0].title.length > 0, JSON.stringify(shared));
+      await c5.close();
+    }
     // With the project private, nobody else sees the section.
     await must(MCP, 'update_project', { project: 'H9 One', visibility: 'private' });
     try {
