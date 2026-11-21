@@ -7,7 +7,7 @@
 // The server of the suites is a production build, so AGENT_TOKEN_TTL_MS is ignored there; the token's expiry is set in the database.
 // Seed profile: none.
 import crypto from 'node:crypto';
-import { B, MCP, ME, check, finish, mkDevice, mkKey, rawDb } from './lib.mjs';
+import { B, MCP, ME, EMAIL, PW, check, finish, mkDevice, mkKey, rawDb } from './lib.mjs';
 import { must, mcpH } from './flow-lib.mjs';
 
 const call = async (path, cred, body = {}) => {
@@ -21,6 +21,15 @@ const col = n => rawDb.collection(n);
 const U = ME.userId;
 const K = s => `${U}:${s}`;
 const uid = () => crypto.randomUUID();
+// The roster (Sessions page, Workers tab) is what shows a state (lib/data/roster.ts, presenceState with hookIdle): read its HTML.
+const cookieOf = async () => {
+  const r = await fetch(B + '/api/auth/sign-in/email', { method: 'POST', headers: { origin: B, 'content-type': 'application/json' }, body: JSON.stringify({ email: EMAIL, password: PW }), redirect: 'manual' });
+  return r.headers.getSetCookie().map(c => c.split(';')[0]).filter(c => !/=$/.test(c)).concat('wos.sessions.filter=11').join('; ');
+};
+const rosterStates = async ck => {
+  const h = await (await fetch(B + '/claude?tab=workers', { headers: { cookie: ck } })).text();
+  return [...h.matchAll(/<li[^>]*data-worker="([^"]*)"[^>]*>/g)].map(m => ({ id: m[1], state: /data-state="(\w+)"/.exec(m[0])?.[1] }));
+};
 const hdr = s => ({ 'X-Work-OS-Session': s });
 const folder = (dev, id, remote, projectId) => ({ _id: `${dev.id}:${id}`, deviceId: dev.id, folderId: id, name: `C:/code/${id}`, git: true, remote, projectId, linkedAt: new Date(), seenAt: new Date(), missing: false, orgId: ME.orgId, ownerId: U });
 
@@ -49,9 +58,14 @@ try {
   const inv = async (label, { project, doing }) => {
     const rows = await col('presence').find({ ccSession: { $in: [C1, C2] }, userId: U }).toArray();
     const open = rows.filter(r => !r.endedAt);
-    const working = open.filter(r => r.activity?.state === 'working');
     check(`${label}: one open row, under the one id${project === null ? ', no project' : ''}`, open.length === 1 && open[0].session === S && (project === null ? !open[0].projectId : open[0].projectId === project), JSON.stringify(open.map(r => [r.session, r.projectId])));
-    check(`${label}: no ghost row shows Working`, working.length <= 1 && working.every(r => r.session === S), JSON.stringify(working.map(r => r.session)));
+    // Piece D's rule: a row of a current hook with no activity is idle on the roster, never Working. Every row of these Claude sessions with no activity
+    // (open or not) must show anything but Working, and no row id other than S's open one may show Working at all.
+    const shown = await rosterStates(await cookieOf());
+    const idle = rows.filter(r => !r.activity && !r.endedAt);
+    const wrong = idle.filter(r => shown.find(x => x.id === r._id)?.state === 'working').map(r => r._id);
+    const ghost = shown.filter(x => x.state === 'working' && rows.some(r => r._id === x.id && (r.session !== S || r.endedAt))).map(x => x.id);
+    check(`${label}: no row with no activity shows Working on the roster, and no left-behind row does`, wrong.length === 0 && ghost.length === 0, JSON.stringify({ wrong, ghost }));
     check(`${label}: one session record, still the same`, (await col('agentIdentities').countDocuments({ ownerId: U, deviceId: dev.id, ccSessions: { $in: [C1, C2] } })) === 1 && !!(await col('agentIdentities').findOne({ _id: S })));
     for (const id of sent) {
       const mm = await col('messages').findOne({ _id: id });
@@ -87,6 +101,7 @@ try {
   await inv('2', { project: pidP, doing: true });
 
   // 3. resume in the parent, with the token and without it
+  // (That the hook writes no WORK-STATE.md and skips the Stop check outside the project's folders is not checkable here: the worker hook tests cover it, worker/test/hook-renew.test.mjs "elsewhere: the marker keeps it and the project's folders; no WORK-STATE.md copy outside them, one inside".)
   const s3a = await call('/api/agent/start', T, { ...parent, ccSession: C1, source: 'resume', proc: PROC });
   check('3a resume in the parent with the token: the same id, stays on the project, elsewhere', s3a.status === 200 && s3a.json?.brief?.session === S && s3a.json?.brief?.project?.id === pidP && s3a.json?.elsewhere === true && !('token' in (s3a.json ?? {})), `${s3a.status} ${s3a.text.slice(0, 160)}`);
   await inv('3a', { project: pidP, doing: true });

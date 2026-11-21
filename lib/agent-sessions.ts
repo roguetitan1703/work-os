@@ -168,9 +168,10 @@ export async function closeLeftBehind(s: Scope, sid: string, projectId: string |
 }
 
 /** The brief failed after closeLeftBehind: the row that held the doing opens again (its doing is still on it), so the next start closes and moves it. */
-export async function reopenLeftBehind(s: Scope, left: { from?: string }): Promise<void> {
+export async function reopenLeftBehind(s: Scope, left: { from?: string }, sid: string): Promise<void> {
   if (!left.from) return;
-  await (await scoped(s)).presence.updateOne({ _id: left.from }, { $unset: { endedAt: '', movedTo: '', swept: '' } });
+  // Only a row nobody moved, or one this start moved (movedTo is the session's bare key): a newer start that moved it keeps it.
+  await (await scoped(s)).presence.updateOne({ _id: left.from, $or: [{ movedTo: { $exists: false } }, { movedTo: sid }] }, { $unset: { endedAt: '', movedTo: '', swept: '' } });
 }
 
 /** Puts what a closed row was doing on the session's row on the project, when that row has nothing of its own (run after the brief made it). */

@@ -65,25 +65,24 @@ try {
   const tokenFilter = id => ({ $or: [{ sessionId: id }, { _id: id }] });
   let tokensToDelete = 0;
   const total = { needs: 0, messages: 0, lines: 0, slots: 0, parents: 0, claims: 0, handovers: 0 };
-  for (const g of groups.values()) {
+  for (const g0 of groups.values()) {
+    if (g0.length < 2) continue;
+    // Rows that are another Claude Code session's record id are dropped from the group first (never ended, merged or stripped); the rest merge.
+    const idSid = await identityOf(g0[0]);
+    const g = [];
+    for (const r of g0) {
+      if (await foreignIdentity(r, idSid)) {
+        console.log(`  skipped a row of project ${r.projectId ?? 'none'}: its id ${r.session} is the session record of another Claude Code session`);
+        nSkipped++;
+      } else g.push(r);
+    }
     if (g.length < 2) continue;
     g.sort((a, b) => seenAt(b) - seenAt(a)); // newest first
     // The row of the session record's own id is kept when it is there (its tokens stay valid); else the newest.
-    const idSid = await identityOf(g[0]);
     const keep = (idSid && g.find(r => r.session === idSid)) || g[0];
-    if (await foreignIdentity(keep, idSid)) {
-      console.log(`  skipped a group of project ${keep.projectId ?? 'none'}: its row ${keep.session} is the session record of another Claude Code session`);
-      nSkipped++;
-      continue;
-    }
     const older = g.filter(r => r !== keep);
     nGroups++;
     for (const from of older) {
-      if (await foreignIdentity(from, idSid)) {
-        console.log(`  skipped a row of project ${from.projectId ?? 'none'}: its id ${from.session} is the session record of another Claude Code session`);
-        nSkipped++;
-        continue;
-      }
       if (now - seenAt(from) < RECENT_MS) {
         nSkipped++;
         continue;

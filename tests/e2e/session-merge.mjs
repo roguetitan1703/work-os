@@ -206,6 +206,15 @@ try {
   const again = run('--apply');
   check('a second apply finds nothing', /0 row\(s\) merged/.test(again), again.slice(-200));
 
+  // The NEWEST row of a group is another session's record id: it is dropped from the group, the rest still merge among themselves.
+  const CCN = uid();
+  const CCNX = uid();
+  const nw = [`nw-foreign-${uid().slice(0, 6)}`, `nw-keep-${uid().slice(0, 6)}`, `nw-old-${uid().slice(0, 6)}`];
+  await col('presence').insertMany([legacyRow(nw[0], CCN, { lastSeen: ago(40) }), legacyRow(nw[1], CCN, { lastSeen: ago(90) }), legacyRow(nw[2], CCN, { lastSeen: ago(95) })]);
+  await col('agentIdentities').insertOne({ _id: nw[0], orgId: ME.orgId, ownerId: U, deviceId: dev.id, ccSessions: [CCNX], projectId: pid, createdAt: ago(100), lastSeen: ago(40) });
+  run('--apply');
+  check('newest row of a group is another session record: it stays, the others merge into the newest of the rest', !(await col('presence').findOne({ session: nw[0] })).endedAt && !(await col('presence').findOne({ session: nw[0] })).movedTo && (await col('presence').findOne({ session: nw[2] })).movedTo === nw[1] && !(await col('presence').findOne({ session: nw[1] })).endedAt);
+
   // A row seen in the last 30 minutes is skipped on its own; the rest of its group still merges into the newest row.
   const CC5 = uid();
   const g = [`rc-new-${uid().slice(0, 6)}`, `rc-recent-${uid().slice(0, 6)}`, `rc-old-${uid().slice(0, 6)}`];
@@ -218,13 +227,16 @@ try {
   await col('workerFolders').insertOne({ _id: `${dev.id}:smfldb`, deviceId: dev.id, folderId: 'smfldb', name: 'C:/code/sm-beta', git: true, remote: 'acme/sm-beta', projectId: pidB, linkedAt: new Date(), seenAt: new Date(), missing: false, orgId: ME.orgId, ownerId: U });
   const CC10 = uid();
   const FO = `fail-${uid().slice(0, 8)}`;
+  const foNeed = uid();
+  await col('needs').insertOne(need(foNeed, FO, { projectId: pidB }));
   await col('presence').insertOne({ ...legacyRow(FO, CC10, { doing: { taskId, at: ago(100) } }), _id: `${U}:s:${FO}:${pidB}`, projectId: pidB });
-  const projDoc = await col('projects').findOne({ _id: pidB });
-  await col('projects').deleteOne({ _id: pidB }); // the brief cannot find its project
-  const bad = await call('/api/agent/start', dev.key, { folders: ['smfldb'], path: 'C:/code/sm-beta', ccSession: CC10, source: 'startup', proc: { pid: 7010, procStart: '1' } });
+  // The brief fails after closeLeftBehind (test hook: header x-e2e-fail-brief, honoured only on a workos_e2e* database).
+  const failBody = { folders: ['smfldb'], path: 'C:/code/sm-beta', ccSession: CC10, source: 'startup', proc: { pid: 7010, procStart: '1' } };
+  const rf = await fetch(B + '/api/agent/start', { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/json', authorization: `Bearer ${dev.key}`, 'x-work-os-hook': '5', 'x-e2e-fail-brief': '1' }, body: JSON.stringify(failBody) });
+  const bad = { status: rf.status };
   const keptRow = await col('presence').findOne({ session: FO });
-  check('a failed brief: the start does not answer 200, the old row is open again and still holds its doing', bad.status !== 200 && !keptRow.endedAt && !keptRow.movedTo && keptRow.doing?.taskId === taskId, `${bad.status} ${JSON.stringify(keptRow)}`);
-  await col('projects').insertOne(projDoc);
+  check('a failed brief: the start does not answer 200, the old row is open again and still holds its doing', bad.status === 500 && !keptRow.endedAt && !keptRow.movedTo && keptRow.doing?.taskId === taskId, `${bad.status} ${JSON.stringify(keptRow)}`);
+  check('the close ran before the brief failed (the old row Need moved to the session own id)', (await n(foNeed)).from.session !== FO, JSON.stringify((await n(foNeed)).from));
   const good = await call('/api/agent/start', dev.key, { folders: ['smfldb'], path: 'C:/code/sm-beta', ccSession: CC10, source: 'startup', proc: { pid: 7010, procStart: '1' } });
   const SB = good.json?.brief?.session;
   const nr = await col('presence').findOne({ session: SB, projectId: pidB, endedAt: { $exists: false } });

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { verifyDeviceKey, DEVICE_KEY_PREFIX } from '@/lib/devices';
+import { simulatedStampsAllowed } from '@/lib/cron-at';
 import { AGENT_TOKEN_PREFIX, createAgentSession, dispatchedOfToken, dispatchedSession, closeLeftBehind, reopenLeftBehind, restoreDoing, findIdentity, identityById, projectFolderIds, projectOnDevice, projectRemotes, touchIdentity } from '@/lib/agent-sessions';
 import { normalizeRemote } from '@/lib/data/code-locations';
 import { agentReply as reply, agentUnauthorized as unauthorized, authAgentToken, bearerOf as bearer, readCapped } from '@/lib/agent-auth';
@@ -229,15 +230,16 @@ export async function POST(req: Request): Promise<Response> {
       const left = await closeLeftBehind(s, session.id, projectId); // the session is on this project now: its rows on another project, another computer or under an older id close, before the brief
       const ctx = ctx0;
       // The session id is the session record's id, never a token.
-      // Where this session works: no version bump (lib/data/states.ts setWhere). Only when the hook sent something to show, and never from a folder that is not the project's.
-      if (!elsewhere && (b.head || b.dirty !== undefined || b.worktrees || b.branch)) await setWhere(s, projectId, b.machine || device.name, { branch: b.branch, head: b.head, dirty: b.dirty, worktrees: b.worktrees });
       // Hook protocol: the X-Work-OS-Hook header; a start without it is the old hook (1, still gets the copy in answers).
       const sidNow = session.id;
       let brief: Awaited<ReturnType<typeof startWorkBrief>>;
       try {
+        // Where this session works: no version bump (lib/data/states.ts setWhere). Only when the hook sent something to show, and never from a folder that is not the project's.
+        if (!elsewhere && (b.head || b.dirty !== undefined || b.worktrees || b.branch)) await setWhere(s, projectId, b.machine || device.name, { branch: b.branch, head: b.head, dirty: b.dirty, worktrees: b.worktrees });
+        if (req.headers.get('x-e2e-fail-brief') === '1' && simulatedStampsAllowed()) throw new Error('e2e: brief failed'); // test hook: only on a database named workos_e2e*, never on a real one
         brief = await again(() => startWorkBrief(ctx, projectId!, sidNow, { hook: hook ?? 1, viaHook: true, branch: b.branch, machine: device.id, ccSession: b.ccSession, source: b.source, label: b.label, title: b.title, aiTitle: b.aiTitle, tool: b.tool, model: b.model, account: b.account, ...(dispatched ? { dispatched } : {}) }));
       } catch (e) {
-        await reopenLeftBehind(s, left).catch(() => {}); // the closed row still holds the doing: it opens again, the next start moves it
+        await reopenLeftBehind(s, left, sidNow).catch(() => {}); // the closed row still holds the doing: it opens again, the next start moves it
         throw e;
       }
       await restoreDoing(s, session.id, projectId, left); // what the closed row was doing goes on the new row (it did not exist when the work moved)
