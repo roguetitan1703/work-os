@@ -11,6 +11,7 @@ import { postAgent, postEvent, readKept, readMarker, run, workerHome } from './h
 import { loadConfig } from './config.mjs';
 import { prodAction, releaseDeny } from './hook-release.mjs';
 import { contextWarning } from './hook-context.mjs';
+import { RELEASE_CMD } from './hook-stop.mjs';
 
 const COUNT_TIMEOUT_MS = 500; // H12: telling Work OS about a refusal that never reached it; the refusal never waits longer
 const EDIT_TIMEOUT_MS = 3500; // the pre-tool hook is given 5 s (hook-lib.mjs EVENTS)
@@ -90,9 +91,10 @@ export async function preTool(input) {
   if (sd) return sd;
   if (!hitsCopy(input)) {
     const blocked = await productionBlock(input);
-    if (blocked) return blocked;
+    if (blocked?.hookSpecificOutput?.permissionDecision) return blocked;
     if (!input.agent_id) await pingWorking(input); // a subagent's call never reports its parent's state (hooks review M4; hook-gate.mjs)
-    return contextWarning(input); // the project's context warning: a local read of the agent's own transcript, nothing when the project has none (hook-context.mjs)
+    // Every note for this call in one answer: the attended release note, the save reminder, the project's context warning (hook-context.mjs).
+    return joinNotes([blocked, saveWithAction(input), contextWarning(input)]);
   }
   const seen = { reached: false };
   if (input.tool_name === 'Edit') {
@@ -101,6 +103,23 @@ export async function preTool(input) {
   // A plain refusal that never reached the server is counted here, once, with a short timeout (the answer does not wait on it).
   if (!seen.reached) await countRefused(input);
   return plainDeny();
+}
+
+/**
+ * A merge, a push to master or main, or work-os-deploy in the main session: say now that save_state goes with the next call, so the Stop
+ * hook (releasedUnsaved in hook-stop.mjs) does not have to send the session back for a turn of its own (Om, 21 Nov).
+ */
+export const SAVE_WITH_ACTION = "Work OS: this merges, pushes to master or releases. Send save_state (done_next for the Next lines it finishes, add_later for what you found, add_decision for your person's yes) in the same message as your next call, not as a turn of its own.";
+export function saveWithAction(input) {
+  const t = input?.tool_name || '';
+  const cmd = (input?.tool_input || {}).command;
+  if (input?.agent_id || !/^(Bash|PowerShell)$/.test(t) || typeof cmd !== 'string' || !RELEASE_CMD.test(cmd)) return null;
+  return { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: SAVE_WITH_ACTION } };
+}
+/** The PreToolUse notes of several answers in one (null when none has text). */
+export function joinNotes(list) {
+  const text = list.map((a) => a?.hookSpecificOutput?.additionalContext).filter((x) => typeof x === 'string' && x).join('\n\n');
+  return text ? { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: text } } : null;
 }
 
 /**

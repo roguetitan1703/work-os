@@ -195,7 +195,7 @@ export function lastAssistantText(input) {
 }
 
 export const RELEASE_TEXT = 'You merged or released this turn and the State was not saved after it. Mark the Next lines it finished done (save_state done_next), add what you found to Later, then finish.';
-const RELEASE_CMD = /\bgit\s+(?:-C\s+\S+\s+)?merge(?![-\w])(?!\s+--(?:abort|quit))|\bgit\s+(?:-C\s+\S+\s+)?push\b[^\n;&|]*\b(?:master|main)\b|\bwork-os-deploy\b/;
+export const RELEASE_CMD = /\bgit\s+(?:-C\s+\S+\s+)?merge(?![-\w])(?!\s+--(?:abort|quit))|\bgit\s+(?:-C\s+\S+\s+)?push\b[^\n;&|]*\b(?:master|main)\b|\bwork-os-deploy\b/;
 
 /** Did this turn merge into the current branch, push to master or main, or run work-os-deploy, with no save_state or end_work after it? Reads the transcript from the turn's start (the last prompt of the person). */
 export function releasedUnsaved(input) {

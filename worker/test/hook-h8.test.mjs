@@ -307,9 +307,15 @@ dev.deps.deviceKey = (dir) => (dir === home ? WKR : null);
 const transcript = path.join(tmp, 't.jsonl');
 fs.writeFileSync(transcript, '{"type":"user"}\n');
 const startSid = (sid, cwd = onMaster) => dev.main('session-start', JSON.stringify({ session_id: sid, cwd, transcript_path: transcript }));
+// The save reminder (hook-pre-tool.mjs saveWithAction) rides with every merge and push to master; these tests are about the release check, so it is taken out.
+const withoutSave = (o) => {
+  if (!o || o.permissionDecision) return o;
+  const t = String(o.additionalContext || '').split('\n\n').filter((x) => !x.startsWith('Work OS: this merges, pushes to master or releases.')).join('\n\n');
+  return t ? { ...o, additionalContext: t } : null;
+};
 const pre = async (sid, command, { cwd = onMaster, tool = 'Bash', permission_mode = 'default' } = {}) => {
   const out = await dev.main('pre-tool', JSON.stringify({ session_id: sid, cwd, tool_name: tool, tool_input: { command }, permission_mode }));
-  return out ? JSON.parse(out).hookSpecificOutput : null;
+  return withoutSave(out ? JSON.parse(out).hookSpecificOutput : null);
 };
 const releases = () => seen.filter((s) => s.url === '/api/agent/release');
 const readMarkerFile = (sid) => JSON.parse(fs.readFileSync(path.join(process.env.WORK_OS_HOOK_DIR, `${sid}.json`), 'utf8'));
@@ -475,7 +481,7 @@ test('block 3 counts: a 5xx on the forwarded Edit posts one count event; a 400 o
 const setMarker = (sid, patch) => { const f = path.join(process.env.WORK_OS_HOOK_DIR, `${sid}.json`); fs.writeFileSync(f, JSON.stringify({ ...JSON.parse(fs.readFileSync(f, 'utf8')), ...patch })); };
 const preRaw = async (sid, command, extra = {}) => {
   const out = await dev.main('pre-tool', JSON.stringify({ session_id: sid, cwd: onMaster, tool_name: 'Bash', tool_input: { command }, ...extra }));
-  return out ? JSON.parse(out).hookSpecificOutput : null;
+  return withoutSave(out ? JSON.parse(out).hookSpecificOutput : null);
 };
 const MIN = 60_000;
 
