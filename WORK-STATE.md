@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 288. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 289. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -14,9 +14,8 @@ Copy of the Work OS state, version 288. WORK-STATE.md is a copy of the State, wr
 6. Next.js: no upgrade needed, already 16.4.6 (c638a01). The build stop came from worktrees with stale installs (wos-b, wos-s, wos-s2, wos-mail, work-os-demo): npm ci in each before its next build.: `next build` now stops once with SecurityFatalError (npm advisories) and passes on retry. The release build (GitHub runner, server-build.yml) may stop the same way at 03:00. Upgrade Next.js to the patched version (Om said yes, 20 Nov): Opus in slot A, full suite, merge, then release at 03:00. — waits on Om's go for the Next.js upgrade
 7. Context warning per project (Om, 21 Nov; Grant Leads asked): pre-tool hook reads each agent's context locally, warns at the project's line (150k for Grant Leads, off elsewhere), peak context in usage. Plan note 3e92845ac0; Merged to dev 21 Nov after review (method: lead plan + Sonnet; 521 worker tests, 8 suites pass). Live 21 Nov (f1812f0, worker 20261120.234229, with the new icon). Om sets Grant Leads to 150k. — waits on builder A's hook-gate merge
 8. Method trial (Om, 21 Nov): lead plan + Sonnet build vs Opus builder. Tag each piece of work with its method; on 23 Nov compare usage (usage page) and review findings/rework, report to Om.
-9. Discord issue channel + one bot for everybody (Om, 21 Nov): #delpat-os for Work OS, #mailloom for Mailloom; server records each post as a task, lead replies one line, fixes with subagents, posts done; Build plan v4 (note c7b491432a): live listener, bug channels, track emoji, Undo/Done/For buttons, OAuth link, agent tools, DMs for reels and day-old Needs. Sonnet building in slot S. Plan note c7b491432a; v1 build stopped, kept at e1a92cf on builder-s. — waits on Om's go for plan v2
-10. New Work OS app icon and Discord track emoji: Om chose Stack · Round (decision 21 Nov); Sonnet builds the icon set in slot B, then merge with the Discord work. Old line: (Om, 21 Nov: the tick icon is generic). Three directions at https://claude.ai/artifact/GYgM4PsJTudR7Bf4bQejDK; recommended K (का, the top line is the Now bar). Final art from an open-licence Devanagari font; one set: app 180/192/512, maskable, favicon, 128 px emoji. — waits on Om picks a direction
-11. Per-project Working plan: the server swaps a project's own '## Working plan' into the Delpat Orders (dev 80aee73, reviewed). Work OS plan note 6f53fca67c waits for Om to mark it as the project's Orders; Grant Leads writes its own and Om marks it. Release after Om's yes. — waits on Om: release yes, mark the notes
+9. Discord issue channel + one bot for everybody (Om, 21 Nov): #delpat-os for Work OS, #mailloom for Mailloom; server records each post as a task, lead replies one line, fixes with subagents, posts done; Build plan v4 (note c7b491432a): live listener, bug channels, track emoji, Undo/Done/For buttons, OAuth link, agent tools, DMs for reels and day-old Needs. Built in slot S; Opus review running. Plan note c7b491432a; v1 build stopped, kept at e1a92cf on builder-s. — waits on Om's go for plan v2
+10. Per-project Working plan: the server swaps a project's own '## Working plan' into the Delpat Orders (dev 80aee73, reviewed). Work OS plan note 6f53fca67c waits for Om to mark it as the project's Orders; Grant Leads writes its own and Om marks it. Release 8521baa building; mark 6f53fca67c after Om OKs the text. — waits on Om: release yes, mark the notes
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -83,7 +82,8 @@ Copy of the Work OS state, version 288. WORK-STATE.md is a copy of the State, wr
 - Release hook (21 Nov): Om's "Yes, release now" in chat was refused for the master push about 40 min later (a release Need was asked instead), though the same hook let a chat yes through earlier that night. Check how long a chat yes counts, and say it in the refusal.
 - Delete the state-lists backup on the box (~/backups/state-lists-20261120-2056) after 5 Dec.
 - Slot tool is advisory: an agent refused a slot can carry on anyway, and nothing is logged (no record it ever refused anyone, checked 21 Nov). Proposal: the worker's Bash pre-tool hook counts real heavy processes on the PC (next build, e2e run.sh, headless Chrome, Blender, mongod) and makes a 3rd heavy command wait, with no agent cooperation; then remove the slot tool (one less tool, ties to #315). — waits on Om's go
+- Orders plan swap: mid-session Orders change notices (deliver.ts) still show changes to the Delpat default Working plan to sessions whose project runs its own plan; swap runs on text already cut at 20,000 chars. — waits on a project using its own plan
 
 ## Parked
 - 2 lines in Work OS: list_parked, or the project page.
-<!-- work-os-copy sha1:fad291f3b8345a4dd69244ee443c7ec93c77fa73 -->
+<!-- work-os-copy sha1:c134f9922b97081232d87a3c2b4bb52592f0bde2 -->
