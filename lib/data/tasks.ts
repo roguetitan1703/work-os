@@ -76,7 +76,7 @@ export function toTask(d: TaskDoc): Task {
     doneAt: d.doneAt ? d.doneAt.toISOString() : null,
     doneOn: d.doneOn,
     doneBy: d.doneBy ? asActor(d.doneBy) : null,
-    ...(d.source ? { source: d.source } : {}),
+    ...(d.source ? { source: (({ seenIds: _seen, ...rest }) => rest)(d.source as typeof d.source & { seenIds?: unknown }) } : {}),
     ...(d.titleBy ? { titleBy: d.titleBy } : {}),
     ...(d.descriptionBy ? { descriptionBy: d.descriptionBy } : {}),
     ...(d.blockedReasonBy ? { blockedReasonBy: d.blockedReasonBy } : {}),

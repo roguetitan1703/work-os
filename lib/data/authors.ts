@@ -148,7 +148,8 @@ export async function taskAuthors(s: Scope, t: TaskText): Promise<TaskAuthors> {
   const fromDiscord: TextAuthor | null = t.source?.kind === 'discord' ? { kind: 'discord-author', name: t.source.author ?? '' } : t.source?.kind === 'mail' ? { kind: 'mail-author', name: t.source.from ?? '' } : null;
   const itemConds = (text: string) => [{ type: 'checklist', note: { $regex: `(^|; )added "${esc(text)}"(;|$)` } }, { 'changes.checklist.to': { $in: [`[ ] ${text}`, `[x] ${text}`] } }];
   const linkCond = (key: string) => ({ 'changes.links.to': key });
-  const foreign = { 'actor.userId': { $exists: true, $nin: [s.userId, ''] } };
+  // Someone else: another person, or a Discord author who has not linked Work OS (no userId: never the reader).
+  const foreign = { $or: [{ 'actor.userId': { $exists: true, $nin: [s.userId, ''] } }, { 'actor.kind': 'discord', 'actor.userId': { $exists: false } }] };
   const fieldCond = (f: string) => ({ [`changes.${f}`]: { $exists: true } });
   // One query for the whole task: every entry that set one of these fields, added one of these items or links, or was
   // made by someone other than the reader. Only when a task has more such entries than the limit (a flood) does each
@@ -165,6 +166,7 @@ export async function taskAuthors(s: Scope, t: TaskText): Promise<TaskAuthors> {
   const complete = rows.length < LIMIT;
   const isForeign = (h: H) => {
     const a = asActor(h.actor);
+    if (a.kind === 'discord' && !('userId' in a && a.userId)) return true;
     return 'userId' in a && !!a.userId && a.userId !== s.userId;
   };
   const pick = async (inRows: (h: H) => boolean, query: Document): Promise<H | null> =>
@@ -224,7 +226,7 @@ export async function othersText(s: Scope, t: TaskText & { _id: string }, people
   const c = await scoped(s);
   const [note, comments] = await Promise.all([
     c.notes.findOne({ taskId: t._id, deletedAt: null }, { projection: { createdBy: 1, updatedBy: 1, body: 1 } }),
-    c.activity.find({ taskId: t._id, type: 'comment', 'actor.userId': { $exists: true, $nin: [s.userId, ''] } }, { projection: { actor: 1 } }).limit(50).toArray(),
+    c.activity.find({ taskId: t._id, type: 'comment', $or: [{ 'actor.userId': { $exists: true, $nin: [s.userId, ''] } }, { 'actor.kind': 'discord', 'actor.userId': { $exists: false } }] }, { projection: { actor: 1 } }).limit(50).toArray(),
   ]);
   const parts: string[] = [];
   const names = new Set<string>();

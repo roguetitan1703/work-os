@@ -112,7 +112,13 @@ async function recordReply(orgId: string, guildId: string, project: ProjectDoc, 
   const claim = await (await orgWide(orgId)).tasks.updateOne({ _id: task._id, 'source.seenIds': { $ne: m.id } }, { $push: { 'source.seenIds': { $each: [m.id], $slice: -300 } } } as never);
   if (!claim.modifiedCount) return false;
   const note = who.userId ? clipText(text, 2000) : `${plainName(who.name) || 'Someone'} (Discord): ${clipText(text, 1900)}`;
-  await addComment(ownerScope(project), task.ref, note, actor, { discordMessageId: m.id });
+  try {
+    await addComment(ownerScope(project), task.ref, note, actor, { discordMessageId: m.id });
+  } catch (e) {
+    // Free the claim so the catch-up can record this reply later.
+    await (await orgWide(orgId)).tasks.updateOne({ _id: task._id }, { $pull: { 'source.seenIds': m.id } } as never);
+    throw e;
+  }
   await tellLead(project, `Reply on #${task.ref} from ${plainName(who.name) || 'someone'}: ${lineOf(m, text)}`, task.ref);
   return true;
 }
