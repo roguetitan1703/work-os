@@ -372,6 +372,18 @@ test('no CLAUDE_PID and a stale .proc file: the full lookup runs and replaces th
   assert.notEqual(kept.pid, 999999, 'a dead pair is replaced');
 });
 
+test('keepProc finds no claude process: the stale .proc file is deleted, so the start body carries no stale pair', async () => {
+  reset();
+  const pf = path.join(home, 'hooks', 'sessions', `${SID}.proc`);
+  fs.mkdirSync(path.dirname(pf), { recursive: true });
+  fs.writeFileSync(pf, JSON.stringify({ pid: 999999, procStart: '1' }));
+  assert.equal(lib.keepProc(SID, () => null), null);
+  assert.equal(fs.existsSync(pf), false, 'the stale file is gone');
+  assert.equal(lib.readProc(SID), null);
+  await start(SID, proj);
+  assert.equal(calls('/api/agent/start')[0].body.proc?.pid === 999999, false);
+});
+
 test('no time for the start time before the sign-in: the pair goes with a renew right after the start', async () => {
   if (process.platform !== 'win32' && process.platform !== 'darwin') return;
   reset();

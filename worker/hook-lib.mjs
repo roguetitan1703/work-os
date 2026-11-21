@@ -167,7 +167,7 @@ export function keepProc(sid, claude = claudeProcess) {
   try {
     if (!workerHome() || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(sid || ''))) return null;
     const c = claude();
-    if (!c) return null;
+    if (!c) { try { fs.rmSync(procFile(sid), { force: true }); } catch { /* nothing to drop */ } return null; } // no claude process found: an old pair would name a dead one
     fs.mkdirSync(path.dirname(procFile(sid)), { recursive: true, mode: 0o700 });
     fs.writeFileSync(procFile(sid), JSON.stringify(c), { mode: 0o600 });
     return c;
