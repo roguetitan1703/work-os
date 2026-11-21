@@ -9,6 +9,7 @@
 //   CRON_SECRET         the relay's credential (the same one the alert check uses)
 //   WORK_OS_LOCAL_URL   default http://127.0.0.1:<WORK_OS_PORT or 3100>
 //   DISCORD_GATEWAY_URL for tests against a fake gateway; default wss://gateway.discord.gg
+import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 // GUILDS (1<<0), GUILD_MESSAGES (1<<9), GUILD_MESSAGE_REACTIONS (1<<10), MESSAGE_CONTENT (1<<15)
@@ -228,4 +229,5 @@ async function main() {
   for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => (g.stop(), process.exit(0)));
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();
+// Run as a script: argv[1] may be a path through the /srv/work-os/current symlink, import.meta.url is the real path.
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) await main();
