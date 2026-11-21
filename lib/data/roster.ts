@@ -108,8 +108,8 @@ export async function unblockedNext(s: Scope, ids?: string[]): Promise<Map<strin
 async function loadRaw(s: Scope, hours: number, projectId?: string): Promise<Raw[]> {
   const c = await scoped(s);
   const since = new Date(Date.now() - hours * 3_600_000);
-  const found = await c.presence.find({ lastSeen: { $gt: since } }).sort({ lastSeen: -1 }).limit(300).toArray();
-  const rows = projectId ? found.filter(r => r.projectId === projectId) : found;
+  const found = await c.presence.find({ lastSeen: { $gt: since }, ...(projectId ? { projectId } : {}) }).sort({ lastSeen: -1 }).limit(300).toArray();
+  const rows = found;
   if (!rows.length) return [];
   // Where the daemon reports, a session whose process still runs is not off however quiet it is, and one it lists as
   // stopped is off at once. The daemon belongs to the worker's own person, so it is read for the whole organization
@@ -135,10 +135,10 @@ async function loadRaw(s: Scope, hours: number, projectId?: string): Promise<Raw
   }
   // The daemon's 'running' and subagents go to the newest open row of the session, picked across all of the person's rows
   // (whatever the project, and including rows the viewer cannot read); then the page's own project is shown (claimDaemon).
-  const keys = [...new Map(rows.flatMap(r => (ccOf(r) ? [[`${r.machine}:${ccOf(r)}`, { machine: r.machine, id: ccOf(r) }] as const] : []))).values()];
+  const keys = [...new Map(rows.flatMap(r => (ccOf(r) ? [[`${r.userId}:${r.machine}:${ccOf(r)}`, { machine: r.machine, id: ccOf(r), userId: r.userId }] as const] : []))).values()];
   const all = keys.length
     ? await (await orgWide(s.orgId)).presence
-        .find({ lastSeen: { $gt: since }, $or: keys.map(({ machine, id }) => ({ machine, $or: [{ ccSession: id }, { session: id }] })) }, { projection: { machine: 1, ccSession: 1, session: 1, endedAt: 1, lastSeen: 1 } })
+        .find({ lastSeen: { $gt: since }, $or: keys.map(({ machine, id, userId }) => ({ machine, userId, $or: [{ ccSession: id }, { session: id }] })) }, { projection: { userId: 1, machine: 1, ccSession: 1, session: 1, endedAt: 1, lastSeen: 1 } })
         .toArray()
     : [];
   return claimDaemon(all, rows, says, subs);

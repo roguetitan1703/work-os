@@ -68,8 +68,8 @@ export function presenceState(row: StateRow, o: { now: number; daemon?: DaemonSa
   return { state: 'idle', since }; // on (started, no prompt yet) and idle are one state: open, not working
 }
 
-export type ClaimRow = { _id: string; machine: string; ccSession?: string | null; session?: string | null; endedAt?: Date | null; lastSeen: Date };
-const ccKey = (r: ClaimRow) => ((r.ccSession ?? r.session) ? `${r.machine}:${r.ccSession ?? r.session}` : '');
+export type ClaimRow = { _id: string; userId?: string; machine: string; ccSession?: string | null; session?: string | null; endedAt?: Date | null; lastSeen: Date };
+const ccKey = (r: ClaimRow) => ((r.ccSession ?? r.session) ? `${r.userId ?? ''}|${r.machine}:${r.ccSession ?? r.session}` : '');
 
 /**
  * Several rows can share one Claude session (a project move, a restart). The daemon's 'running' and its subagents belong to the
@@ -87,8 +87,9 @@ export function claimDaemon<R extends ClaimRow>(all: ClaimRow[], shown: R[], say
   }
   return shown.map(row => {
     const k = ccKey(row);
-    let daemon: DaemonSays = (k && says.get(k)) || 'unknown';
-    let subagents = (k && subs.get(k)) || 0;
+    const dk = k && `${row.machine}:${row.ccSession ?? row.session}`;
+    let daemon: DaemonSays = (dk && says.get(dk)) || 'unknown';
+    let subagents = (dk && subs.get(dk)) || 0;
     if (k && !row.endedAt && owner.get(k)?._id !== row._id) {
       if (daemon === 'running') daemon = 'unknown';
       subagents = 0;

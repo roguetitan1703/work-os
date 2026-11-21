@@ -102,3 +102,10 @@ test('claimDaemon: a project page keeps the owner across projects; a session tha
   // only row visible and owner: keeps it
   assert.equal(claimDaemon([here], [here], says(), subs)[0].daemon, 'running');
 });
+
+test('claimDaemon: a different user newer row with the same key never takes the claim', () => {
+  const mine = crow('mine', { userId: 'u1', lastSeen: ago(5) });
+  const theirs = crow('theirs', { userId: 'u2' });
+  const out = claimDaemon([theirs, mine], [mine], says(), subs);
+  assert.deepEqual([out[0].daemon, out[0].subagents], ['running', 2]);
+});
