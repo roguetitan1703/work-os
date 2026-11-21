@@ -10,6 +10,7 @@ import type { NoteBlock } from '@/lib/notes-schema';
 import { deleteNoteAction, restoreNoteAction, saveNoteAction } from '../actions';
 import type { SaveState } from './block-editor';
 import { UNTITLED } from '@/lib/notes-shelves';
+import { ShareLinkButton } from '@/components/share-link-button';
 
 // The block editor touches the DOM on load, so it only renders in the browser.
 const BlockEditor = dynamic(() => import('./block-editor').then(m => m.BlockEditor), {
@@ -68,6 +69,7 @@ export function NoteEditor({ note, blocks, focusTitle }: { note: NoteProps; bloc
         />
         <div className="flex items-center gap-1 md:pt-3 shrink-0 w-full md:w-auto justify-end">
           <SaveBadge state={state} />
+          <ShareLinkButton path={`/notes/${note.id}`} title={title.trim() || UNTITLED} />
           {!note.isTaskNote && !note.parentId && (
             <button onClick={toggleArchive} title={note.ownArchived ? 'Unarchive' : 'Archive'} className="h-11 w-11 md:h-8 md:w-8 inline-flex items-center justify-center rounded-xl md:rounded-md text-muted-foreground hover:bg-muted active:bg-muted">
               {note.ownArchived ? <ArchiveRestore className="w-4 h-4" /> : <Archive className="w-4 h-4" />}
