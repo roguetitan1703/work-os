@@ -176,6 +176,16 @@ try {
   await col('presence').insertMany([unfiledRow(uf[0], { lastSeen: ago(40) }), unfiledRow(uf[1], { lastSeen: ago(90) })]);
   const ufMsg = uid();
   await col('messages').insertOne(msg(ufMsg, { projectId: null, toSids: [K(uf[1])], seenBy: [] }));
+  // A row whose own id is the session record id of ANOTHER Claude Code session is never ended or merged (it is skipped and logged).
+  const CC9 = uid();
+  const CCX = uid();
+  const fx = [`fx-new-${uid().slice(0, 6)}`, `fx-other-${uid().slice(0, 6)}`, `fx-plain-${uid().slice(0, 6)}`];
+  await col('presence').insertMany([legacyRow(fx[0], CC9, { lastSeen: ago(40) }), legacyRow(fx[1], CC9, { lastSeen: ago(90) }), legacyRow(fx[2], CC9, { lastSeen: ago(95) })]);
+  await col('agentIdentities').insertOne({ _id: fx[1], orgId: ME.orgId, ownerId: U, deviceId: dev.id, ccSessions: [CCX], projectId: pid, createdAt: ago(100), lastSeen: ago(90) });
+  const fxTok = uid();
+  await col('agentSessions').insertOne({ _id: fxTok, hash: crypto.randomBytes(32).toString('hex'), sessionId: fx[1], keyHash: 'x', deviceId: dev.id, ownerId: U, orgId: ME.orgId, projectId: pid, createdAt: new Date(), expiresAt: new Date(Date.now() + 3600e3) });
+  const fxNeed = uid();
+  await col('needs').insertOne(need(fxNeed, fx[1]));
   const run = (...a) => execFileSync(process.execPath, ['--experimental-strip-types', '--no-warnings', fileURLToPath(new URL('../../scripts/merge-dup-sessions.mjs', import.meta.url)), '--db', DBNAME, ...a], { env: process.env, encoding: 'utf8' });
   const dry = run();
   check('dry run: names the groups and changes nothing', /DRY RUN/.test(dry) && /to merge/.test(dry) && !(await col('presence').findOne({ session: rows[1] })).endedAt && (await n(nm1)).from.session === rows[1], dry.slice(-300));
@@ -190,8 +200,20 @@ try {
   check('a message addressed to both keys keeps the new key once', JSON.stringify((await m(igMsg)).toSids) === JSON.stringify([K(ig[1])]), JSON.stringify((await m(igMsg)).toSids));
   check('a row with no lastSeen does not throw and merges into the newest', !(await col('presence').findOne({ session: nl[0] })).endedAt && (await col('presence').findOne({ session: nl[1] })).movedTo === nl[0]);
   check('an unfiled group: the unread message with no project follows to the newest row', JSON.stringify((await m(ufMsg)).toSids) === JSON.stringify([K(uf[0])]) && (await col('presence').findOne({ session: uf[1] })).movedTo === uf[0], JSON.stringify((await m(ufMsg)).toSids));
+  const fo = await col('presence').findOne({ session: fx[1] });
+  check("a row that is another Claude Code session's record id is not ended, merged or stripped (its Need and token stay)", !fo.endedAt && !fo.movedTo && (await n(fxNeed)).from.session === fx[1] && (await col('agentSessions').countDocuments({ _id: fxTok })) === 1, JSON.stringify(fo));
+  check('the other rows of that group still merge, and the skip is logged', (await col('presence').findOne({ session: fx[2] })).movedTo === fx[0] && /another Claude Code session/.test(app), app.slice(-400));
   const again = run('--apply');
   check('a second apply finds nothing', /0 row\(s\) merged/.test(again), again.slice(-200));
+
+  // The NEWEST row of a group is another session's record id: it is dropped from the group, the rest still merge among themselves.
+  const CCN = uid();
+  const CCNX = uid();
+  const nw = [`nw-foreign-${uid().slice(0, 6)}`, `nw-keep-${uid().slice(0, 6)}`, `nw-old-${uid().slice(0, 6)}`];
+  await col('presence').insertMany([legacyRow(nw[0], CCN, { lastSeen: ago(40) }), legacyRow(nw[1], CCN, { lastSeen: ago(90) }), legacyRow(nw[2], CCN, { lastSeen: ago(95) })]);
+  await col('agentIdentities').insertOne({ _id: nw[0], orgId: ME.orgId, ownerId: U, deviceId: dev.id, ccSessions: [CCNX], projectId: pid, createdAt: ago(100), lastSeen: ago(40) });
+  run('--apply');
+  check('newest row of a group is another session record: it stays, the others merge into the newest of the rest', !(await col('presence').findOne({ session: nw[0] })).endedAt && !(await col('presence').findOne({ session: nw[0] })).movedTo && (await col('presence').findOne({ session: nw[2] })).movedTo === nw[1] && !(await col('presence').findOne({ session: nw[1] })).endedAt);
 
   // A row seen in the last 30 minutes is skipped on its own; the rest of its group still merges into the newest row.
   const CC5 = uid();
@@ -199,6 +221,26 @@ try {
   await col('presence').insertMany([legacyRow(g[0], CC5, { lastSeen: new Date() }), legacyRow(g[1], CC5, { lastSeen: ago(10) }), legacyRow(g[2], CC5, { lastSeen: ago(100) })]);
   run('--apply');
   check('a recently seen row is skipped on its own; the old one still merges into the newest', !(await col('presence').findOne({ session: g[1] })).endedAt && (await col('presence').findOne({ session: g[2] })).movedTo === g[0]);
+
+  // ── 4. a brief that fails after the close loses no doing: the closed row opens again, and the next start moves it
+  const pidB = (await must(MCP, 'add_project', { name: 'SM Beta', code: [{ remote: 'acme/sm-beta' }] })).project.id;
+  await col('workerFolders').insertOne({ _id: `${dev.id}:smfldb`, deviceId: dev.id, folderId: 'smfldb', name: 'C:/code/sm-beta', git: true, remote: 'acme/sm-beta', projectId: pidB, linkedAt: new Date(), seenAt: new Date(), missing: false, orgId: ME.orgId, ownerId: U });
+  const CC10 = uid();
+  const FO = `fail-${uid().slice(0, 8)}`;
+  const foNeed = uid();
+  await col('needs').insertOne(need(foNeed, FO, { projectId: pidB }));
+  await col('presence').insertOne({ ...legacyRow(FO, CC10, { doing: { taskId, at: ago(100) } }), _id: `${U}:s:${FO}:${pidB}`, projectId: pidB });
+  // The brief fails after closeLeftBehind (test hook: header x-e2e-fail-brief, honoured only on a workos_e2e* database).
+  const failBody = { folders: ['smfldb'], path: 'C:/code/sm-beta', ccSession: CC10, source: 'startup', proc: { pid: 7010, procStart: '1' } };
+  const rf = await fetch(B + '/api/agent/start', { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/json', authorization: `Bearer ${dev.key}`, 'x-work-os-hook': '5', 'x-e2e-fail-brief': '1' }, body: JSON.stringify(failBody) });
+  const bad = { status: rf.status };
+  const keptRow = await col('presence').findOne({ session: FO });
+  check('a failed brief: the start does not answer 200, the old row is open again and still holds its doing', bad.status === 500 && !keptRow.endedAt && !keptRow.movedTo && keptRow.doing?.taskId === taskId, `${bad.status} ${JSON.stringify(keptRow)}`);
+  check('the close ran before the brief failed (the old row Need moved to the session own id)', (await n(foNeed)).from.session !== FO, JSON.stringify((await n(foNeed)).from));
+  const good = await call('/api/agent/start', dev.key, { folders: ['smfldb'], path: 'C:/code/sm-beta', ccSession: CC10, source: 'startup', proc: { pid: 7010, procStart: '1' } });
+  const SB = good.json?.brief?.session;
+  const nr = await col('presence').findOne({ session: SB, projectId: pidB, endedAt: { $exists: false } });
+  check('the retry works: the doing is on the session row and gone from the old one', good.status === 200 && nr?.doing?.taskId === taskId && !(await col('presence').findOne({ session: FO })).doing, `${good.status} ${JSON.stringify(nr?.doing)}`);
 } catch (e) {
   check('session-merge suite (error)', false, e?.stack || String(e));
 }

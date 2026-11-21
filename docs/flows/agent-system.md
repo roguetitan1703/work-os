@@ -180,8 +180,9 @@ Tools reach every surface and an agent working alone; prompts and skills don't (
   subagents stay quiet. **Built (H13, 19 Nov):** path locations take a `machine`; the device-key route takes the
   hook's `folders`; `start_work` gains `folder`, `link`, `not_work_os`; the remote only ranks suggestions; see
   HANDOVER.md section 3, "Claude Code hooks", "The folder decides the project".
-- **Every session has its own id** (the session token's id, section 16.8, or one from start_work; not Claude Code's
-  session_id). Seen state, presence and `to` (a message's addressee) key on it. This fixes the "same person, unread forever" bug.
+- **Every session has its own id** (the session record's id, which never changes for one person, computer and Claude Code
+  session: not on a project move, /clear or resume; section 16.8 and HANDOVER.md "One session, one id"; or one from
+  start_work; not Claude Code's session_id). Seen state, presence and `to` (a message's addressee) key on it. This fixes the "same person, unread forever" bug.
   **Built (H3, 19 Nov):** `seenBy`, `toSids`, `sessionKey`, `isUnreadFor`; see docs/HANDOVER.md section 3, Messages.
 - **Presence at zero tokens from hooks:**
   - On: SessionStart.
@@ -278,8 +279,9 @@ Each piece ships through dev, a full test run, then master. Security review befo
    ("Later 10: get_state"). The instructions budget (2,500 characters) counts both parts Claude Code keys get.
 7. **Claude items retire in two steps:** remove the instructions paragraph now (S); migrate later (B) through a
    Declutter Need per project (an item with "done when" becomes a task, an idea a Later line).
-8. **Keys:** at session start the hook swaps the device key for a session token (one session, one project, a day, its
-   own rate limit), which is also the per-session id. The device key is only allowed for projects with a folder on that
+8. **Keys:** at session start the hook swaps the device key for a session token, a renewable key to one session (not the
+   session: a session can hold several, and a hook whose token ran out renews it, same id), with its own rate limit; the
+   per-session id is the session record's id. The device key is only allowed for projects with a folder on that
    PC, and Setup's text says so. Until then a normal Claude Code key in settings.
 9. **Declutter:** a line that waits on someone never counts as stale; after an answer, quiet for 14 days; the Work OS
    half of the batch applies on the server when Om says yes.

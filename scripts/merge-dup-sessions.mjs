@@ -9,7 +9,8 @@
 // Environment: MONGODB_URI (or a MONGO_*_URI name, as the app reads it). The database is always named on the command line.
 // A group is the open hook rows with one userId + Claude Code session + project + computer. A row seen in the last 30 minutes is skipped
 // on its own (it may be live); the rest of its group still merges into the newest row. A group on no project only ends the older rows
-// (nothing is filed there to move). The move is lib/session-move.ts, the code the app runs at sign-in. A second --apply finds nothing.
+// (nothing is filed there to move). A row whose own id is the session record id (agentIdentities _id) of ANOTHER Claude Code session is
+// never ended or merged: it is skipped and logged. The move is lib/session-move.ts, the code the app runs at sign-in. A second --apply finds nothing.
 // Prints counts only, never any text.
 import { MongoClient } from 'mongodb';
 import { copySeenBy, moveOwnedWork, moveSessionWork } from '../lib/session-move.ts';
@@ -59,14 +60,25 @@ try {
     return identities.get(k);
   };
   const isIdentity = async id => !!(await db.collection('agentIdentities').findOne({ _id: id }, { projection: { _id: 1 } }));
+  // A row whose own id is the record id of ANOTHER Claude Code session is that session's row (the group's ccSession is not its): never ended, never merged.
+  const foreignIdentity = async (r, idSid) => !!r.session && r.session !== idSid && (await isIdentity(r.session));
   const tokenFilter = id => ({ $or: [{ sessionId: id }, { _id: id }] });
   let tokensToDelete = 0;
   const total = { needs: 0, messages: 0, lines: 0, slots: 0, parents: 0, claims: 0, handovers: 0 };
-  for (const g of groups.values()) {
+  for (const g0 of groups.values()) {
+    if (g0.length < 2) continue;
+    // Rows that are another Claude Code session's record id are dropped from the group first (never ended, merged or stripped); the rest merge.
+    const idSid = await identityOf(g0[0]);
+    const g = [];
+    for (const r of g0) {
+      if (await foreignIdentity(r, idSid)) {
+        console.log(`  skipped a row of project ${r.projectId ?? 'none'}: its id ${r.session} is the session record of another Claude Code session`);
+        nSkipped++;
+      } else g.push(r);
+    }
     if (g.length < 2) continue;
     g.sort((a, b) => seenAt(b) - seenAt(a)); // newest first
     // The row of the session record's own id is kept when it is there (its tokens stay valid); else the newest.
-    const idSid = await identityOf(g[0]);
     const keep = (idSid && g.find(r => r.session === idSid)) || g[0];
     const older = g.filter(r => r !== keep);
     nGroups++;
@@ -98,7 +110,7 @@ try {
       }
     }
   }
-  console.log(`\n${nGroups} group(s) with more than one open row; ${nRows} row(s) ${APPLY ? 'merged' : 'to merge'}, ${nSkipped} skipped (seen in the last 30 minutes).`);
+  console.log(`\n${nGroups} group(s) with more than one open row; ${nRows} row(s) ${APPLY ? 'merged' : 'to merge'}, ${nSkipped} skipped (seen in the last 30 minutes, or the record of another session).`);
   if (!APPLY) console.log(`Token rows --apply would delete: ${tokensToDelete}.`);
   if (APPLY) console.log(`Moved: ${total.needs} Needs, ${total.messages} messages, ${total.lines} lines, ${total.slots} slot holds, ${total.parents} parents, ${total.claims} claimed items, ${total.handovers} handovers. Token rows deleted: ${tokens}.`);
 } finally {
