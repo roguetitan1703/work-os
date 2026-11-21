@@ -941,7 +941,7 @@ try {
     const mcn = `lkqmvmsg${hex(4)}`;
     CANARIES.push({ s: mcn, tag: 'mvmsg', allow: new Set(['A', 'T']) });
     // 20 Nov: a message to a person goes to her lead session on the project, so she starts one first. It is then turned into the old form
-    // (toUser, Messages for you), which messages stored before still have, so that form stays covered here.
+    // (toUser, the personal inbox, gone 21 Nov), which messages stored before still have: nothing may show it.
     const tStart = await mcpCall(T.code, 'start_work', { project: nm, machine: 'lkqmvt', label: 'tess' });
     const mm = await mustMcp(A.chat, 'send_message', { to: T.person, project: nm, kind: 'fyi', body: mcn, word: 'person' });
     check('Messages: a message to a teammate goes to her session on the shared project, by its key', JSON.stringify((await rawDb.collection('messages').findOne({ _id: mm.id })).toSids) === JSON.stringify([`${T.userId}:${tStart.json?.session}`]), '');
@@ -951,9 +951,9 @@ try {
     check('Messages: a teammate can send to a person on a shared project, and their word is agent whatever they pass', tm.ok && JSON.parse(tm.text).word === 'agent', tm.text.slice(0, 200));
     const tib = await mcpCall(T.chat, 'message_status', { id: mm.id });
     scan('T', 'mv message_status read (before)', tib.text);
-    check('Messages: a teammate reads a message sent to her on a shared project', tib.ok && tib.text.includes(mcn), tib.text.slice(0, 200));
+    check('Messages: an old toUser row is read by no one through a chat key (no inbox: it is not hers to read as a person)', !tib.ok && /not found/i.test(tib.text) && !tib.text.includes(mcn), tib.text.slice(0, 200));
     const tNowBefore = await req('GET', '/claude?tab=now', { cookie: T.cookie });
-    check('Messages: …and it is under Messages for you on her Claude › Now', tNowBefore.status === 200 && tNowBefore.text.includes(mcn), String(tNowBefore.status));
+    check('Messages: …and it is on no page of hers (the personal inbox is gone, 21 Nov)', tNowBefore.status === 200 && !tNowBefore.text.includes(mcn) && !tNowBefore.text.includes('Messages for you'), String(tNowBefore.status));
     const tNoSession = await mcpCall(T.chat, 'send_message', { to: aSid, kind: 'fyi', body: 'lkq to the owner session' });
     scan('T', 'mv send_message to a session of another person', tNoSession.text);
     check('Messages: a teammate cannot send to the owner’s session by its id (it is no session of hers)', !tNoSession.ok && /No session of yours has that id/.test(tNoSession.text) && !tNoSession.text.includes(aSid), tNoSession.text.slice(0, 200));
@@ -1028,7 +1028,7 @@ try {
       check(`Messages: after the project was made private the teammate is refused (${tool})`, !r.ok && /not found/i.test(r.text) && !r.text.includes(mcn), r.text.slice(0, 200));
     }
     const tNowAfter = await req('GET', '/claude?tab=now', { cookie: T.cookie });
-    check('Messages: …and her Claude › Now (Messages for you) carries nothing of it', tNowAfter.status === 200 && !tNowAfter.text.includes(mcn), String(tNowAfter.status));
+    check('Messages: …and her Claude › Now carries nothing of it', tNowAfter.status === 200 && !tNowAfter.text.includes(mcn), String(tNowAfter.status));
     for (const [tool, args] of [['get_state', { project: nm }], ['start_work', { project: nm }], ['save_state', { project: nm, ops: [{ op: 'add_next', text: 'lkq after private' }] }], ['import_state', { project: nm, markdown: '## Now\n- x' }], ['get_project', { project: nm }]]) {
       const r = await mcpCall(T.chat, tool, args);
       scan('T', `mv ${tool} (after private)`, r.text);
@@ -1543,11 +1543,8 @@ function AUDIT() {
   const SA = 'app/(app)/projects/[id]/state-actions.ts#';
   const OA = 'app/(app)/notes/orders-actions.ts#';
   const MFA = 'app/(app)/claude/message-actions.ts#';
-  // Messages for you (Identity step 6): the signed-in person acts on what is theirs; another person session message, or one on a project she cannot read, is 'not found' as a made-up id
-  add(`action ${MFA}messageStatusAction`, act(MFA + 'messageStatusAction', t => [t.msg, 'applied'], aim(['msg'], { control: false })), act(MFA + 'messageStatusAction', t => [t.msg, 'rejected', 'lkq'], aim(['msg'], { label: 'rejected', control: false })));
-  add(`action ${MFA}makeTaskFromMessageAction`, act(MFA + 'makeTaskFromMessageAction', t => [t.msgReq], aim(['msgReq'], { control: false })));
+  // A session row's Message (Identity step 6): the signed-in person writes to one of their own sessions; another person's session is 'not found' as a made-up id
   add(`action ${MFA}messageSessionAction`, act(MFA + 'messageSessionAction', t => [t.sidRow, 'lkq action session message'], aim(['sidRow'])));
-  add(`action ${MFA}replyToMessageAction`, act(MFA + 'replyToMessageAction', t => [t.msg, 'lkq action reply'], aim(['msg'])));
   add(`action ${SA}saveStateAction`, act(SA + 'saveStateAction', t => [t.project, [{ op: 'add_next', text: 'lkq action sneak' }]], aim(['project'])), act(SA + 'saveStateAction', t => [t.project, [{ op: 'add_decision', text: 'lkq action decision' }, { op: 'add_later', text: 'lkq action later' }]], aim(['project'], { label: 'decision and later' })));
   // H11: Declutter in the app. The project's owner (the control) sees and applies; a member who is not the owner and anyone without access get the same answer as for a made-up project (not found, or the owner-only line), and a made-up archived line is refused alike.
   const DC = 'app/(app)/projects/[id]/declutter-actions.ts#';

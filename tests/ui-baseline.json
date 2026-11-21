@@ -35,10 +35,6 @@
     "px": 1,
     "btn": 2
   },
-  "app/(app)/claude/messages-for-you.tsx": {
-    "px": 6,
-    "btn": 6
-  },
   "app/(app)/claude/quiet-folders.tsx": {
     "px": 2,
     "btn": 1

@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'inbox-gone',
+    date: '2026-11-21',
+    title: 'The old Messages for you inbox is gone',
+    line: 'Messages go straight to a session now, so there is no separate inbox card on Claude.',
+    where: 'Claude › Sessions',
+    href: '/claude',
+  },
+  {
     id: 'share-note-link',
     date: '2026-11-21',
     title: "Share a page's link from its top bar",

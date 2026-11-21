@@ -15,7 +15,6 @@ import { baseUrl } from '../settings/base-url';
 import { AutoRefresh } from './auto-refresh';
 import { SessionsTab } from './now-tab';
 import { SetupTab } from './setup-tab';
-import { messagesForYou } from '@/lib/data/messages';
 import { openNeedsToMe } from '@/lib/data/needs';
 import { asksBySession, withAskerSessions } from '@/lib/data/need-sessions';
 
@@ -36,10 +35,10 @@ export default async function ClaudePage({ searchParams }: Props) {
   const me = await getCaller();
   if (!me) redirect('/login');
   const sc = { userId: me.userId, orgId: me.orgId };
-  const [overview, tasks, workers, messages, needs] =
+  const [overview, tasks, workers, needs] =
     tab === 'sessions'
-      ? await Promise.all([claudeOverview(me), claudeTasks(me), roster(sc, { results: true }), messagesForYou(sc), openNeedsToMe(sc).then(n => withAskerSessions(sc, n))])
-      : [null, null, null, [], []];
+      ? await Promise.all([claudeOverview(me), claudeTasks(me), roster(sc, { results: true }), openNeedsToMe(sc).then(n => withAskerSessions(sc, n))])
+      : [null, null, null, []];
   const asks = asksBySession(needs, me.userId);
   // Start Claude has nothing to start on until a computer exists; until then the page offers Set up Claude instead.
   const hasComputers = overview ? overview.hasComputers : (await deviceMap(me)).size > 0;
@@ -111,7 +110,6 @@ export default async function ClaudePage({ searchParams }: Props) {
           hasComputers={overview.hasComputers}
           claudeTasks={tasks}
           reopen={overview.reopen}
-          messages={messages}
           asks={asks}
         />
       )}
