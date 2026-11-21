@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 300. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 301. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -87,8 +87,8 @@ Copy of the Work OS state, version 300. WORK-STATE.md is a copy of the State, wr
 - Compaction cost measured 21 Nov: about 90K input-equivalent once (192K read + 4.5K summary + 35K cache rebuild); saves about 10K per call after, pays off after about 9 calls. Supports compacting the lead earlier (~150K).
 - Stop hook forces an extra turn after every merge or release just to save State; make the release flow save State itself (working plan draft 2, point 5).
 - Usage metric: subscription limits are % of the 5-hour and weekly windows, weighting not published. Compare work in API-price-weighted input tokens from transcripts (input + 0.1 cache read + 1.25 cache write + 5 output) as a stand-in; check it against get_usage % moves.
-- Notes: there's no share control on a note (sharing exists only on projects). The Delpat Orders note (785391c151) is attached to project Work OS, so it doesn't show among the Delpat (org) notes. Fix: org-layer Orders show under Delpat, and a share control goes on the note page. — waits on Om's yes on the fix
+- Notes: org Orders under Delpat at the top of Notes is on dev (df94585, reviewed; flow-h9 120/0, leak-audit 282/0), ships next release. Share control: A (chip showing who reads, follows project) or B (per-note sharing); plus a guard on making Work OS private. — waits on Om picks A or B and the guard
 
 ## Parked
 - 2 lines in Work OS: list_parked, or the project page.
-<!-- work-os-copy sha1:733155a8a04bec5db3fb24666f0d068321eae530 -->
+<!-- work-os-copy sha1:fb4afd3cd190e009bb662757c3a20580fcfaaab5 -->
