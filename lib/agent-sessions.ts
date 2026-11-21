@@ -165,7 +165,7 @@ export async function verifyAgentToken(token: string | null | undefined): Promis
       rec = fresh;
     } catch (e) {
       if (!isDup(e)) throw e;
-      rec = await c.agentIdentities.findOne({ _id: sid }); // another call made it just now
+      rec = await c.agentIdentities.findOne({ _id: sid, ownerId: doc.ownerId, orgId: doc.orgId }); // another call made it just now
       if (!rec) {
         // Its Claude Code session already belongs to another record: this one is kept without it.
         rec = { ...fresh, ccSessions: [] };

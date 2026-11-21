@@ -157,6 +157,8 @@ export async function POST(req: Request): Promise<Response> {
       // The session's record: by its token, else by its Claude Code session id (or the claude process, for a /clear). None yet: made below.
       let identity = session ? await identityById(session.id) : await findIdentity(s, device.id, { ccSession: b.ccSession, proc: b.proc, source: b.source });
 
+      const ctx0 = { baseUrl: baseUrl(req), caller: { agent: 'claude-code' as const, keyName: `Claude Code on ${device.name}`.slice(0, 80), userId: s.userId, orgId: s.orgId } };
+
       // Renew: a new token for the existing session and nothing else (no brief, no folders, no project change).
       if (b.renew) {
         if (session) return reply(200, { expiresAt: session.expiresAt.toISOString(), session: session.id });
@@ -165,10 +167,14 @@ export async function POST(req: Request): Promise<Response> {
         const rpid = identity.projectId && (await projectOnDevice(s, device.id, identity.projectId)) ? identity.projectId : null;
         const made = await createAgentSession(s, device.id, rpid, cred, { identity, ccSession: b.ccSession, dispatched: await dispatchedOfToken(identity._id) });
         await touchIdentity(identity, { ccSession: b.ccSession, proc: b.proc, projectId: rpid });
+        if (!rpid && identity.projectId) {
+          // Unfiled now: its project row ends and the unfiled row opens, as noProjectStart does (events go to that row).
+          await endRowsElsewhere(s, identity._id, null);
+          await again(() => registerUnfiledSession(ctx0, identity!._id, { hook: hook ?? 1, viaHook: true, machine: device.id, ccSession: b.ccSession }, undefined));
+        }
         return reply(200, { token: made.token, expiresAt: made.expiresAt.toISOString(), session: identity._id });
       }
 
-      const ctx0 = { baseUrl: baseUrl(req), caller: { agent: 'claude-code' as const, keyName: `Claude Code on ${device.name}`.slice(0, 80), userId: s.userId, orgId: s.orgId } };
       // A session whose folder no project owns is still on the roster, as a session with no project (protocol 3). It gets a token that opens
       // only event and wait, and no brief; it keeps its id, and the id stays when a later start files it. An older hook gets the 404 as before.
       const noProjectStart = async (): Promise<Response> => {

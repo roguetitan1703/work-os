@@ -93,6 +93,17 @@ try {
   const tok3 = await rawDb.collection('agentSessions').findOne({ hash: hash(r3.json?.token ?? 'x') });
   check('renew for a project whose folder is unlinked here: a token with no project, and the record unfiled', r3.status === 200 && r3.json?.session === sid2 && tok3 && !tok3.projectId && !(await rawDb.collection('agentIdentities').findOne({ _id: sid2 })).projectId, `${r3.status} ${r3.text.slice(0, 120)} ${JSON.stringify(tok3)?.slice(0, 160)}`);
 
+  const P2row = await rawDb.collection('presence').findOne({ session: sid2, projectId: p2 });
+  const T4 = r3.json?.token ?? '';
+  const e5 = await call('/api/agent/event', T4, { event: 'prompt' });
+  const noneRow = await rawDb.collection('presence').findOne({ session: sid2, projectId: null });
+  check('…the project row is ended and an event lands on an open unfiled row', e5.status === 200 && !!P2row?.endedAt && !!noneRow && !noneRow.endedAt && noneRow.activity?.state === 'working', `${e5.status} ${e5.text.slice(0, 100)} ${JSON.stringify(noneRow)?.slice(0, 160)}`);
+  // verifyAgentToken's hourly write also refreshes the record's lastSeen (its 90-day expiry)
+  await rawDb.collection('agentIdentities').updateOne({ _id: sid2 }, { $set: { lastSeen: new Date(Date.now() - 40 * day) } });
+  await rawDb.collection('agentSessions').updateOne({ hash: hash(T4) }, { $set: { expiresAt: new Date(Date.now() + 2 * 3600e3) } });
+  await call('/api/agent/event', T4, { event: 'tool' });
+  check('the hourly expiry write also moves the session record lastSeen to now', Date.now() - +(await rawDb.collection('agentIdentities').findOne({ _id: sid2 })).lastSeen < 60_000);
+
   // ---- its own limit: 20 per computer and Claude Code session, apart from the sign-ins ----
   let ok = 0;
   let last = 0;
