@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 295. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 296. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -15,7 +15,8 @@ Copy of the Work OS state, version 295. WORK-STATE.md is a copy of the State, wr
 7. Context warning per project (Om, 21 Nov; Grant Leads asked): pre-tool hook reads each agent's context locally, warns at the project's line (150k for Grant Leads, off elsewhere), peak context in usage. Plan note 3e92845ac0; Merged to dev 21 Nov after review (method: lead plan + Sonnet; 521 worker tests, 8 suites pass). Live 21 Nov (f1812f0, worker 20261120.234229, with the new icon). Om sets Grant Leads to 150k. — waits on builder A's hook-gate merge
 8. Method trial (Om, 21 Nov): lead plan + Sonnet build vs Opus builder. Tag each piece of work with its method; on 23 Nov compare usage (usage page) and review findings/rework, report to Om.
 9. Per-project Working plan: the server swaps a project's own '## Working plan' into the Delpat Orders (dev 80aee73, reviewed). Work OS plan note 6f53fca67c waits for Om to mark it as the project's Orders; Grant Leads writes its own and Om marks it. Swap live (330d27c). Om questions whether per-project plans are needed; Grant Leads lead asked replace vs add (m_590d82a004e7). — waits on Om: release yes, mark the notes
-10. Discord v4 release: c5201ea live 21 Nov; work-os-discord.service installed but exited silently (symlink in the run-as-script check). Fix a3b867a on master, building; then upload, work-os-update, systemctl restart work-os-discord, journalctl. Om's steps in note 34a1383581 (portal, DISCORD_CLIENT_SECRET, emoji, bug channels). — waits on the build finishing
+10. Discord v4 live (a3b867a, 21 Nov): listener running on the server, connected, no gateway errors. Waits on Om's steps in note 34a1383581 (portal URLs, Message Content intent, DISCORD_CLIENT_SECRET, wos emoji, Connect Discord, bug channels); then try a real post in #delpat-os. — waits on Om's Discord steps
+11. Work OS Working plan, draft 3 (flows: cost = context x calls; design-plan-build-review-merge-release owners; bookkeeping rides with the action; lead compacts ~150K; weekly waste measure) plus the hook change (save-State reminder in the push's own result, Stop block only as last resort). — waits on Om's yes on draft 3
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -89,4 +90,4 @@ Copy of the Work OS state, version 295. WORK-STATE.md is a copy of the State, wr
 
 ## Parked
 - 2 lines in Work OS: list_parked, or the project page.
-<!-- work-os-copy sha1:18ed06c34caec286c7303953a3030397e11797a1 -->
+<!-- work-os-copy sha1:36a4e69b3f34d3c40907e553590ded81a372a939 -->
