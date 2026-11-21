@@ -387,6 +387,28 @@ try {
       check('5d: with a share sheet, navigator.share gets the note title and its full URL', shared.length === 1 && shared[0].url === B + '/notes/' + org && typeof shared[0].title === 'string' && shared[0].title.length > 0, JSON.stringify(shared));
       await c5.close();
     }
+    // The share sheet failing: closing it (AbortError) does nothing more; any other error falls back to the copy; no clipboard at all says so.
+    for (const [label, init, want] of [
+      ['a closed share sheet (AbortError) shows no toast and copies nothing', () => { Object.defineProperty(navigator, 'share', { value: async () => { throw new DOMException('closed', 'AbortError'); }, configurable: true }); }, 'none'],
+      ['a refused share (NotAllowedError) falls back to copying the link', () => { Object.defineProperty(navigator, 'share', { value: async () => { throw new DOMException('no', 'NotAllowedError'); }, configurable: true }); }, 'copied'],
+      ['no clipboard shows an error toast', () => { Object.defineProperty(navigator, 'share', { value: undefined, configurable: true }); Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true }); }, 'error'],
+    ]) {
+      const c5 = await bro.newContext({ viewport: { width: 1280, height: 800 }, permissions: ['clipboard-read', 'clipboard-write'] });
+      const p5 = await c5.newPage();
+      await p5.addInitScript(init);
+      await login(p5, { email: 'tess-h9@example.test', next: '/notes/' + org });
+      await p5.waitForSelector('[data-share-link]', { timeout: 20000 });
+      if (want !== 'error') await p5.evaluate(() => navigator.clipboard.writeText('untouched'));
+      await p5.locator('[data-share-link]').click();
+      if (want === 'copied') await p5.waitForFunction(() => document.body.innerText.includes('Link copied'), null, { timeout: 5000 }).catch(() => {});
+      else if (want === 'error') await p5.waitForFunction(() => document.body.innerText.includes('Could not copy the link'), null, { timeout: 5000 }).catch(() => {});
+      else await p5.waitForTimeout(1200);
+      const txt = await p5.locator('body').innerText();
+      const clip = want === 'error' ? '' : await p5.evaluate(() => navigator.clipboard.readText().catch(() => ''));
+      const ok = want === 'copied' ? txt.includes('Link copied') && clip === B + '/notes/' + org : want === 'error' ? txt.includes('Could not copy the link') && !txt.includes('Link copied') : !txt.includes('Link copied') && !txt.includes('Could not copy') && clip !== B + '/notes/' + org;
+      check('5d: ' + label, ok, JSON.stringify([clip, txt.includes('Link copied')]));
+      await c5.close();
+    }
     // With the project private, nobody else sees the section.
     await must(MCP, 'update_project', { project: 'H9 One', visibility: 'private' });
     try {

@@ -14,10 +14,11 @@ export function ShareLinkButton({ path, title }: { path: string; title: string }
     if (typeof navigator.share === 'function') {
       try {
         await navigator.share({ title, url });
-      } catch {
-        // closing the share sheet is not an error
+        return;
+      } catch (e) {
+        // Closing the share sheet is not an error; anything else (NotAllowedError, ...) falls back to the clipboard.
+        if ((e as { name?: string })?.name === 'AbortError') return;
       }
-      return;
     }
     try {
       await navigator.clipboard.writeText(url);
