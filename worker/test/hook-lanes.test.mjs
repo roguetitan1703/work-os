@@ -87,13 +87,13 @@ test('pre-tool: the timeout answer denies a subagent State write the same way an
   assert.equal(pre.timeoutAnswer(JSON.stringify({ session_id: 'l-1', tool_name: 'mcp__work-os__save_state' })), null);
 });
 
-test('the hook rows: pre-tool matches the State writes, post-tool the lane calls, no subagent-stop row, protocol 4', () => {
+test('the hook rows: pre-tool matches the State writes, post-tool the lane calls, no subagent-stop row, protocol 5', () => {
   const row = (e) => lib.EVENTS.find((r) => r.event === e);
   for (const t of ['save_state', 'import_state', 'end_work']) assert.ok(new RegExp(`^(${row('pre-tool').matcher})$`).test(`mcp__work-os__${t}`), t);
   for (const t of ['save_state', 'import_state', 'get_state', 'end_work', 'log_progress', 'set_doing', 'hand_in', 'complete_task']) assert.ok(new RegExp(`^(${row('post-tool').matcher})$`).test(`mcp__work-os__${t}`), t);
   assert.equal(row('subagent-stop'), undefined, 'SubagentStop runs no Work OS hook');
-  assert.equal(lib.HOOK_PROTOCOL, 4);
-  assert.deepEqual(lib.hookHeaders(), { 'x-work-os-hook': '4' });
+  assert.equal(lib.HOOK_PROTOCOL, 5);
+  assert.deepEqual(lib.hookHeaders(), { 'x-work-os-hook': '5' });
 });
 
 test('subagent-stop: sends nothing, even with a kept token and a message (a subagent\'s report is never the session\'s last line)', async () => {
@@ -113,7 +113,7 @@ const results = () => events().filter((e) => e.body.event === 'result');
 const line = (o) => JSON.stringify(o) + NL;
 const said = (text, extra = {}) => line({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] }, ...extra });
 
-test('stop: the turn\'s last message goes to the event route as result after the stop, control characters out, 300 characters, protocol 4 header; once per text', async () => {
+test('stop: the turn\'s last message goes to the event route as result after the stop, control characters out, 300 characters, protocol 5 header; once per text', async () => {
   const sid = 'l-res-1';
   lib.keepToken(sid, TOKEN);
   start(sid);
@@ -123,7 +123,7 @@ test('stop: the turn\'s last message goes to the event route as result after the
   assert.deepEqual(events().map((e) => e.body.event), ['stop', 'result'], 'the stop first, then the result');
   const e = results()[0];
   assert.equal(e.auth, `Bearer ${TOKEN}`);
-  assert.equal(e.hook, '4');
+  assert.equal(e.hook, '5');
   assert.equal(e.body.result.length, 300);
   assert.doesNotMatch(e.body.result, /[\u0000-\u001f\u007f-\u009f]/);
   assert.match(e.body.result, /^Tests pass\. second line x+/);

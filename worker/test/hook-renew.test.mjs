@@ -1,4 +1,4 @@
-// Session identity, piece C (hook): the sign-in sends `proc` and x-work-os-hook: 4; a token that ran out (or was refused) is renewed
+// Session identity, piece C (hook): the sign-in sends `proc` and x-work-os-hook: 5; a token that ran out (or was refused) is renewed
 // with `renew: true` for a session that had one; a failed renew is cut by a backoff kept in the marker (so separate hook processes
 // do not repeat it); an old server (400) gets a plain start from the prompt hook only; `elsewhere` stops the WORK-STATE.md copy and the
 // Stop check outside the project's folders; the answers' expiresAt keeps the kept token alive. The installed copy beside a throwaway
@@ -28,7 +28,9 @@ const SID = '11111111-1111-4111-8111-111111111111';
 const brief = { project: { id: 'p1', name: 'Demo' }, session: 's-1', orders: 'none', state: { now: { text: 'x' } }, stateVersion: 2 };
 const seen = [];
 // What the stub answers: renew = the status of a renew call (200 gives a new token), event401 = tokens the event route refuses, startExtra = fields on a start answer.
-const cfg = { renew: 200, event401: new Set(), startExtra: {}, next: 'a' };
+// The stub is strict like master's start route: a body key it does not know is a 400 (`old: true` is today's production server, which knows neither `proc` nor `renew`).
+const MASTER_KEYS = ['remote', 'subdir', 'branch', 'path', 'folders', 'machine', 'label', 'model', 'account', 'title', 'aiTitle', 'tool', 'ccSession', 'source', 'head', 'dirty', 'worktrees'];
+const cfg = { old: false, renew: 200, event401: new Set(), startExtra: {}, next: 'a' };
 const iso = (ms) => new Date(Date.now() + ms).toISOString();
 const server = http.createServer((req, res) => {
   let b = '';
@@ -38,6 +40,8 @@ const server = http.createServer((req, res) => {
     seen.push({ url: req.url, auth: req.headers.authorization, hook: req.headers['x-work-os-hook'], body });
     const json = (status, o) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
     if (req.url === '/api/agent/start') {
+      const allowed = cfg.old ? MASTER_KEYS : [...MASTER_KEYS, 'proc', 'renew'];
+      if (Object.keys(body).some((k) => !allowed.includes(k))) return json(400, { error: 'unrecognized key' });
       if (body.renew) {
         if (cfg.renew === 200) return json(200, { token: tok(cfg.next), expiresAt: iso(3600e3), session: 's-1' });
         return json(cfg.renew, { error: 'no' });
@@ -80,14 +84,14 @@ const start = (sid, cwd, extra = {}) => dev.main('session-start', JSON.stringify
 const prompt = (sid, cwd) => dev.main('user-prompt', JSON.stringify({ session_id: sid, cwd, transcript_path: transcript }));
 const calls = (url) => seen.filter((s) => s.url === url);
 const renews = () => seen.filter((s) => s.url === '/api/agent/start' && s.body.renew);
-const reset = () => { fs.rmSync(path.join(home, 'hooks', 'sessions'), { recursive: true, force: true }); seen.length = 0; Object.assign(cfg, { renew: 200, startExtra: {}, next: 'a' }); cfg.event401.clear(); };
+const reset = () => { fs.rmSync(path.join(home, 'hooks', 'sessions'), { recursive: true, force: true }); seen.length = 0; Object.assign(cfg, { old: false, renew: 200, startExtra: {}, next: 'a' }); cfg.event401.clear(); };
 
-test('the sign-in sends proc (the claude pid) and x-work-os-hook: 4', async () => {
+test('the sign-in sends proc (the claude pid) and x-work-os-hook: 5', async () => {
   reset();
   await start(SID, proj);
   const s = calls('/api/agent/start')[0];
   assert.equal(s.auth, `Bearer ${WKR}`);
-  assert.equal(s.hook, '4');
+  assert.equal(s.hook, '5');
   assert.equal(s.body.proc.pid, process.pid);
   assert.equal(s.body.ccSession, SID);
   assert.equal(lib.readProc(SID).pid, process.pid);
@@ -117,7 +121,7 @@ test('a token that ran out: the prompt renews it (device key, ccSession, proc, r
   assert.equal(r.body.renew, true);
   assert.equal(r.body.ccSession, SID);
   assert.equal(r.body.proc.pid, process.pid);
-  assert.equal(r.hook, '4');
+  assert.equal(r.hook, '5');
   assert.deepEqual(Object.keys(r.body).sort(), ['ccSession', 'proc', 'renew'], 'nothing else: the server ignores folders on a renew');
   const ev = calls('/api/agent/event');
   assert.equal(ev.length, 1);
@@ -275,4 +279,117 @@ test('elsewhere: the Stop check is skipped outside the project\'s folders and ru
 test('a sign-in without the worker copy sends nothing (not installed beside a worker)', async () => {
   assert.equal(typeof lib.signIn, 'function');
   assert.equal(await lib.renewToken('44444444-4444-4444-8444-444444444444'), null);
+});
+
+// ── Review fixes: an old server, the /clear link, no folders known, the renew gap ──────────────────────────────────────────
+
+test('an old server (strict start schema, no proc): start, brief, token and events all work; the hook remembers and stops sending proc and renew', async () => {
+  reset();
+  cfg.old = true;
+  const out = await start(SID, proj);
+  assert.match(JSON.stringify(out), /Work OS brief for project Demo/, 'the brief is shown');
+  const starts = calls('/api/agent/start');
+  assert.equal(starts.length, 2, 'one 400, one retry');
+  assert.ok(starts[0].body.proc, 'the first try carried proc');
+  assert.equal(starts[1].body.proc, undefined);
+  assert.equal(starts[1].body.renew, undefined);
+  assert.equal(starts[1].body.ccSession, SID);
+  assert.deepEqual(starts[1].body.folders, ['fldProj01']);
+  assert.equal(kept(SID).token, tok('a'));
+  assert.equal(marker(SID).oldServer, true);
+  assert.equal(marker(SID).hadToken, true);
+  seen.length = 0;
+  await prompt(SID, proj);
+  assert.equal(calls('/api/agent/event').length, 1, 'events reach the old server');
+  assert.equal(calls('/api/agent/event')[0].auth, `Bearer ${tok('a')}`);
+  // the token runs out: no renew (the old server would refuse it); a plain start from the prompt hook, with no proc
+  expire(SID);
+  seen.length = 0;
+  cfg.next = 'b';
+  await prompt(SID, proj);
+  assert.equal(renews().length, 0);
+  const again = calls('/api/agent/start');
+  assert.equal(again.length, 1, 'no 400 round trip: the marker says the server is old');
+  assert.equal(again[0].body.proc, undefined);
+  assert.equal(calls('/api/agent/event')[0].auth, `Bearer ${tok('b')}`);
+  // a tool call with the token expired again makes no start and no renew
+  expire(SID);
+  seen.length = 0;
+  await lib.postEvent(SID, 'tool');
+  assert.equal(calls('/api/agent/start').length, 0);
+  // the next session start tries the new fields again; a server that has been updated takes them
+  cfg.old = false;
+  seen.length = 0;
+  await start(SID, proj, { source: 'resume' });
+  assert.ok(calls('/api/agent/start')[0].body.proc, 'a new session start sends proc again');
+  assert.equal(marker(SID).oldServer, undefined);
+});
+
+test('an old server with a kept token: the refresh start is retried plain', async () => {
+  reset();
+  await start(SID, proj); // a new server: a token and a marker
+  cfg.old = true;
+  seen.length = 0;
+  const out = await start(SID, proj, { source: 'compact' });
+  assert.match(JSON.stringify(out), /Work OS brief/);
+  assert.equal(marker(SID).oldServer, true);
+});
+
+test('/clear after a startup links to the same session: both starts carry the same pid and start time', async () => {
+  reset();
+  const sid2 = '55555555-5555-4555-8555-555555555555';
+  await start(SID, proj);
+  await start(sid2, proj, { source: 'clear' });
+  const [a, b] = calls('/api/agent/start').filter((s) => !s.body.renew);
+  assert.equal(a.body.ccSession, SID);
+  assert.equal(b.body.ccSession, sid2);
+  assert.equal(a.body.proc.pid, b.body.proc.pid);
+  if (process.platform === 'win32' || process.platform === 'darwin') assert.match(a.body.proc.procStart, /^\d+$/, 'the first start already sends the full pair');
+  assert.equal(a.body.proc.procStart, b.body.proc.procStart);
+});
+
+test('no time for the start time before the sign-in: the pair goes with a renew right after the start', async () => {
+  if (process.platform !== 'win32' && process.platform !== 'darwin') return;
+  reset();
+  const was = lib.run.deadline;
+  lib.run.deadline = Date.now() + 3500; // under the 4 s the start time needs before the sign-in is allowed, over what the follow-up needs
+  const ss = await import(pathToFileURL(path.join(home, 'hooks', 'hook-session-start.mjs')).href);
+  try { await ss.sessionStart({ session_id: SID, cwd: proj, transcript_path: transcript, source: 'startup' }); } finally { lib.run.deadline = was; }
+  const sent = calls('/api/agent/start');
+  assert.equal(sent[0].body.proc.procStart, undefined, 'the sign-in went with the pid alone');
+  assert.ok(lib.readProc(SID).procStart, 'the start time was taken afterwards');
+  assert.equal(sent.length, 2);
+  assert.equal(sent[1].body.renew, true);
+  assert.equal(sent[1].body.proc.procStart, lib.readProc(SID).procStart, 'the renew carries the full pair');
+});
+
+test('elsewhere with no folder known (state.json unreadable): never skip, so the copy and the Stop check run in the project\'s own repo', async () => {
+  reset();
+  const st = path.join(home, 'state.json');
+  const saved = fs.readFileSync(st, 'utf8');
+  try {
+    fs.rmSync(st);
+    assert.equal(lib.elsewhereHere({ elsewhere: true, projectFolders: ['fldProj01'] }, proj), false);
+    fs.writeFileSync(st, '{ not json');
+    assert.equal(lib.elsewhereHere({ elsewhere: true, projectFolders: ['fldProj01'] }, proj), false);
+  } finally { fs.writeFileSync(st, saved); }
+  assert.equal(lib.elsewhereHere({ elsewhere: true, projectFolders: ['fldProj01'] }, other), true, 'known folders still skip');
+});
+
+test('renews are at least 5 minutes apart: a server that renews with 200 but refuses events with 401 does not renew on every call', async () => {
+  reset();
+  await start(SID, proj);
+  expire(SID);
+  seen.length = 0;
+  cfg.next = 'b';
+  cfg.event401.add(tok('b'));
+  await prompt(SID, proj);
+  assert.equal(renews().length, 1);
+  assert.equal(typeof marker(SID).renewedAt, 'number');
+  await lib.postEvent(SID, 'stop');
+  await lib.postEvent(SID, 'notify', { kind: 'idle_prompt' });
+  assert.equal(renews().length, 1, 'the 401 does not start another renew within 5 minutes');
+  const m = marker(SID); m.renewedAt -= 5 * 60_000 + 1000; fs.writeFileSync(markerFile(SID), JSON.stringify(m));
+  await lib.postEvent(SID, 'stop');
+  assert.equal(renews().length, 2, 'after the gap it may renew again');
 });

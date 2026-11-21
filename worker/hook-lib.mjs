@@ -444,9 +444,10 @@ export function frameInbox(messages) {
  * itself (get_state copy:true, POST /api/agent/state), so the server's save answers leave out the markdown. An old hook sends
  * nothing and is marked protocol 1 (it still gets the markdown in answers). 3 = the hook also sends the session's identity (its name,
  * Claude's title, the model, the tool) at the start and on change (Identity step 4). 4 = the session's last message goes to the server as the lane's `result` (Lanes step 3; sent by the Stop hook, never a subagent's), and a Bash or PowerShell call's start as `tool-start` (a running tool keeps the session working);
- * the server still accepts 1 to 3.
+ * 5 = the sign-in also sends `proc` (the claude pid and start time) and may `renew` (session identity; a server that refuses these with 400 is an old one, see postStart);
+ * the server still accepts 1 to 4.
  */
-export const HOOK_PROTOCOL = 4;
+export const HOOK_PROTOCOL = 5;
 export const hookHeaders = () => ({ 'x-work-os-hook': String(HOOK_PROTOCOL) });
 
 /**
@@ -529,13 +530,38 @@ const withProc = (body) => {
   return proc ? { ...body, proc } : body;
 };
 
+/** The body without the fields only a new server knows (`proc`, `renew`). */
+const withoutNew = ({ proc: _p, renew: _r, ...rest }) => rest;
+
+/**
+ * POST /api/agent/start with `cred`; the body gets `proc`. An old server's start schema is strict and answers 400 to a field it does
+ * not know: a 400 for a body that carried `proc` is tried once more without it (and without `renew`), and the answer says
+ * `oldServer: true`. `skipNew` (the marker says the server is old) sends the plain body at once. A renew body is never retried
+ * plain: it would be a start with no folders (renewToken handles its 400).
+ */
+export async function postStart(cred, body, timeoutMs = TIMEOUT_MS, skipNew = false) {
+  const first = skipNew ? withoutNew(body) : withProc(body);
+  const r = await postAgent('/api/agent/start', cred, first, timeoutMs);
+  if (skipNew) return r && { ...r, oldServer: true };
+  if (r?.status === 400 && first.proc && !first.renew) {
+    const ms = withinDeadline(timeoutMs);
+    if (ms < 150) return r;
+    const r2 = await postAgent('/api/agent/start', cred, withoutNew(first), ms);
+    return r2 && { ...r2, oldServer: true };
+  }
+  return r;
+}
+
+/** True when the session's marker says the server refused the new fields (set by the start that was retried; cleared by the next session start). */
+export const oldServerFor = (sid) => !!(sid && readMarker(sid)?.oldServer);
+
 /** POST /api/agent/start with this PC's device key (the body gets `proc`); null when there is no worker or key. */
-export async function signIn(body, timeoutMs = TIMEOUT_MS) {
+export async function signIn(body, timeoutMs = TIMEOUT_MS, skipNew = false) {
   const home = workerHome();
   if (!home) return null;
   const key = deps.deviceKey(home);
   if (!key || !/^wkr_[A-Za-z0-9_-]{43}$/.test(key)) return null;
-  return postAgent('/api/agent/start', key, withProc(body), timeoutMs);
+  return postStart(key, body, timeoutMs, skipNew);
 }
 
 /** H15: the task ref when the server says the task dispatcher started this session (whatever started it on this PC); kept in the marker. */
@@ -549,25 +575,29 @@ export const elsewhereOf = (b) => (b?.elsewhere === true ? { elsewhere: true, pr
  * Returns { brief, token?, until?, elsewhere?, projectFolders? } (token and until only when a new token was made), or
  * { unfiled: true, quiet } when no project owns the folder, or null (over the limit, server trouble, no key).
  */
-export async function agentStart(body, kept, timeoutMs) {
+export async function agentStart(body, kept, timeoutMs, { fresh = false } = {}) {
   const home = workerHome();
   if (!home) return null;
-  const post = (cred) => postAgent('/api/agent/start', cred, withProc(body), timeoutMs);
+  // A real session start (`fresh`) tries the new fields again; every other call follows what the marker learned.
+  let old = !fresh && oldServerFor(body.ccSession);
+  const flag = () => (old ? { oldServer: true } : {});
   if (kept && SESSION_TOKEN_RE.test(kept)) {
-    const r = await post(kept);
-    if (r.status === 200 && r.b?.brief) return { brief: r.b.brief, ...dispatchedOf(r.b), ...elsewhereOf(r.b) };
-    if (r.status === 200 && r.b?.unfiled === true) return { unfiled: true, quiet: r.b.quiet === true }; // still no project; the token stays this session's
+    const r = await postStart(kept, body, timeoutMs, old);
+    if (r?.oldServer) old = true;
+    if (r.status === 200 && r.b?.brief) return { brief: r.b.brief, ...dispatchedOf(r.b), ...elsewhereOf(r.b), ...flag() };
+    if (r.status === 200 && r.b?.unfiled === true) return { unfiled: true, quiet: r.b.quiet === true, ...flag() }; // still no project; the token stays this session's
     if (r.status !== 401 && r.status !== 403) return null; // over the limit, server trouble: no brief this time
   }
-  const r = await signIn(body, timeoutMs);
+  const r = await signIn(body, timeoutMs, old);
   if (!r) return null;
-  if (r.unfiled) return { unfiled: true, quiet: r.quiet === true };
+  if (r.oldServer) old = true;
+  if (r.unfiled) return { unfiled: true, quiet: r.quiet === true, ...flag() };
   // A folder no project owns is a session with no project; the answer carries a token that opens only events and waits.
-  if (r.status === 200 && r.b?.unfiled === true) return { unfiled: true, quiet: r.b.quiet === true, ...(SESSION_TOKEN_RE.test(r.b.token || '') ? { token: r.b.token, until: Date.parse(r.b.expiresAt || '') || undefined } : {}) };
+  if (r.status === 200 && r.b?.unfiled === true) return { unfiled: true, quiet: r.b.quiet === true, ...flag(), ...(SESSION_TOKEN_RE.test(r.b.token || '') ? { token: r.b.token, until: Date.parse(r.b.expiresAt || '') || undefined } : {}) };
   if (r.status !== 200 || !r.b?.brief) return null;
   const token = SESSION_TOKEN_RE.test(r.b.token || '') ? r.b.token : undefined;
   const until = Date.parse(r.b.expiresAt || '') || undefined;
-  return { brief: r.b.brief, token, until, ...dispatchedOf(r.b), ...elsewhereOf(r.b) };
+  return { brief: r.b.brief, token, until, ...dispatchedOf(r.b), ...elsewhereOf(r.b), ...flag() };
 }
 
 /** What the hook knows about the session's folder: the start_work arguments (remote, branch and path are information). */
@@ -587,12 +617,13 @@ export async function plainStart(input, timeoutMs = 1500) {
   const a = await agentStart({ ...whereOf(cwd).where, folders: folderCandidates(cwd), ...repoFacts(cwd), ccSession: sid, source: 'startup' }, null, ms);
   if (!a?.token) return null;
   keepToken(sid, a.token, a.until);
-  updateMarker(sid, (m) => { const { elsewhere: _e, projectFolders: _p, ...rest } = m; return { ...rest, ...elsewhereOf(a) }; });
+  updateMarker(sid, (m) => { const { elsewhere: _e, projectFolders: _p, ...rest } = m; return { ...rest, ...elsewhereOf(a), ...(a.oldServer ? { oldServer: true } : {}) }; });
   return a.token;
 }
 
 export const RENEW_BACKOFF_MIN = 60_000;
 export const RENEW_BACKOFF_MAX = 30 * 60_000;
+export const RENEW_MIN_GAP = 5 * 60_000;
 /**
  * C3: a session that had a token (marker `hadToken`) has none, or the server refused it (401): ask for a new one with
  * signIn({ renew: true }), once per call. On failure the marker keeps renewFailAt and renewBackoff (1 minute, doubling up to
@@ -606,9 +637,11 @@ export async function renewToken(sid, { timeoutMs = 1500, fallback = null } = {}
     if (!workerHome() || !m?.hadToken || m.renewDead) return null;
     const now = Date.now();
     if (typeof m.renewFailAt === 'number' && now - m.renewFailAt < (m.renewBackoff || RENEW_BACKOFF_MIN)) return null;
+    // A server that answered 200 to a renew but 401 to the events must not make every tool call renew: at least 5 minutes between two.
+    if (typeof m.renewedAt === 'number' && now - m.renewedAt < RENEW_MIN_GAP) return null;
     const fail = () => updateMarker(sid, (x) => ({ ...x, renewFailAt: now, renewBackoff: x.renewBackoff ? Math.min(x.renewBackoff * 2, RENEW_BACKOFF_MAX) : RENEW_BACKOFF_MIN }));
-    const done = (token) => { updateMarker(sid, (x) => { const { renewFailAt: _a, renewBackoff: _b, ...rest } = x; return rest; }); return token; };
-    if (!m.renewBad) {
+    const done = (token) => { updateMarker(sid, (x) => { const { renewFailAt: _a, renewBackoff: _b, ...rest } = x; return { ...rest, renewedAt: now }; }); return token; };
+    if (!m.renewBad && !m.oldServer) {
       const ms = withinDeadline(timeoutMs);
       if (ms < 150) return null;
       let r = null;
@@ -618,7 +651,7 @@ export async function renewToken(sid, { timeoutMs = 1500, fallback = null } = {}
         return done(r.b.token);
       }
       if (r?.status === 404) { updateMarker(sid, (x) => ({ ...x, renewDead: true })); return null; }
-      if (r?.status === 400) updateMarker(sid, (x) => ({ ...x, renewBad: true }));
+      if (r?.status === 400) updateMarker(sid, (x) => ({ ...x, renewBad: true, oldServer: true }));
       else { fail(); return null; }
     }
     if (!fallback) return null;
@@ -634,5 +667,7 @@ export async function renewToken(sid, { timeoutMs = 1500, fallback = null } = {}
 export function elsewhereHere(m, cwd) {
   if (!m?.elsewhere) return false;
   const ids = Array.isArray(m.projectFolders) ? m.projectFolders : [];
-  return !folderCandidates(cwd).some((id) => ids.includes(id));
+  const here = folderCandidates(cwd);
+  if (!here.length) return false; // state.json unreadable (or no folder known): never skip in the project's own repo
+  return !here.some((id) => ids.includes(id));
 }
