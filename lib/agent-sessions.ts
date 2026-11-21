@@ -1,8 +1,11 @@
 import 'server-only';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { collections, type AgentIdentityDoc, type AgentSessionDoc } from './db';
+import { collections, type AgentIdentityDoc, type AgentSessionDoc, type PresenceDoc } from './db';
 import { scoped, type Scope } from './scope';
 import { normalizeRemote } from './data/code-locations';
+import { busy } from './data/lanes';
+import { hookRowId } from './data/presence';
+import { moveSessionWork } from './session-move';
 
 // Sessions and session tokens for the Work OS hook (docs/flows/agent-system.md sections 4 and 16 item 8; route
 // app/api/agent/start/route.ts). A PC is connected once: its worker's device key (wkr_, lib/devices.ts) signs the hook in.
@@ -119,14 +122,34 @@ export async function touchIdentity(identity: AgentIdentityDoc, o: { ccSession?:
   await c.agentIdentities.updateOne({ _id: identity._id }, { $set: { projectId: o.projectId, lastSeen: new Date(), ...(o.proc ? { proc: o.proc } : {}), ...(o.dispatched ? { dispatched: o.dispatched } : {}) }, ...(o.dispatched === null ? { $unset: { dispatched: '' as const } } : {}) });
 }
 
-/** Presence rows of this session on other projects (or none) end: it works on `projectId` now (their work is swept later, lib/data/pickup.ts). */
-export async function endRowsElsewhere(s: Scope, sid: string, projectId: string | null): Promise<void> {
-  await (await scoped(s)).presence.updateMany({ userId: s.userId, session: sid, projectId: { $ne: projectId }, endedAt: { $exists: false } }, { $set: { endedAt: new Date() } });
-}
-
-/** The same Claude Code session id started on another computer of this person: its open rows there end (a session is one computer; work is swept later, lib/data/pickup.ts). */
-export async function endRowsOnOtherDevices(s: Scope, deviceId: string, ccSession: string): Promise<void> {
-  await (await scoped(s)).presence.updateMany({ userId: s.userId, ccSession, machine: { $ne: deviceId }, endedAt: { $exists: false } }, { $set: { endedAt: new Date() } });
+/**
+ * The close at sign-in (plan note db5bf91389, B3), run by the start route before the brief. The session `sid` works on `projectId` (null:
+ * unfiled) now; what an earlier id or place of the same Claude Code session left behind is closed so one row holds the work:
+ *   - an open hook row of this session's Claude Code session ids, on this computer and this project, under another id (an older start
+ *     before ids were stable): its work moves to the session's row (lib/session-move.ts) and it ends;
+ *   - an open row of the session on another project (or none), or of its Claude Code session ids under another project or on another
+ *     computer: it ends only (the sweep, lib/data/pickup.ts, hands its work on later).
+ * A busy row (working, or at a permission prompt) under another id is never closed (it may be a live writer; the session's own rows end whatever they show, since their last event came before the move), and a start_work row (no Claude Code session id) is never touched.
+ */
+export async function closeLeftBehind(s: Scope, sid: string, projectId: string | null): Promise<void> {
+  const rec = await identityById(sid);
+  if (!rec || rec.ownerId !== s.userId) return;
+  const c = await scoped(s);
+  const now = Date.now();
+  const ccs = rec.ccSessions ?? [];
+  const rows = await c.presence.find({ userId: s.userId, endedAt: { $exists: false }, $or: [{ session: sid }, ...(ccs.length ? [{ ccSession: { $in: ccs } }] : [])] }).limit(50).toArray();
+  const toId = hookRowId(s.userId, sid, projectId);
+  let to: PresenceDoc | null | undefined;
+  for (const r of rows) {
+    if (r._id === toId) continue; // the session's own row on this project
+    if (r.session !== sid && !(r.ccSession && ccs.includes(r.ccSession))) continue;
+    if (r.session !== sid && busy(r, now)) continue; // the session's own rows end whatever they show (their last event was before the move)
+    const here = !!projectId && r.projectId === projectId && !!r.session && r.session !== sid && r.machine === rec.deviceId;
+    if (here) {
+      if (to === undefined) to = await c.presence.findOne({ _id: toId });
+      await moveSessionWork(c as never, projectId!, r, to ?? { _id: toId, userId: s.userId, key: sid, session: sid }, now);
+    } else await c.presence.updateOne({ _id: r._id, endedAt: { $exists: false } }, { $set: { endedAt: new Date(now) } });
+  }
 }
 
 /** The worker folder ids of a project on a computer, for a session that stays on its project from a folder that is not one of them. */

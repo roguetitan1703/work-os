@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { verifyDeviceKey, DEVICE_KEY_PREFIX } from '@/lib/devices';
-import { AGENT_TOKEN_PREFIX, createAgentSession, dispatchedOfToken, dispatchedSession, endRowsElsewhere, endRowsOnOtherDevices, findIdentity, identityById, projectFolderIds, projectOnDevice, projectRemotes, touchIdentity } from '@/lib/agent-sessions';
+import { AGENT_TOKEN_PREFIX, createAgentSession, dispatchedOfToken, dispatchedSession, closeLeftBehind, findIdentity, identityById, projectFolderIds, projectOnDevice, projectRemotes, touchIdentity } from '@/lib/agent-sessions';
 import { normalizeRemote } from '@/lib/data/code-locations';
 import { agentReply as reply, agentUnauthorized as unauthorized, authAgentToken, bearerOf as bearer, readCapped } from '@/lib/agent-auth';
 import { roleOf } from '@/lib/caller';
@@ -169,7 +169,7 @@ export async function POST(req: Request): Promise<Response> {
         await touchIdentity(identity, { ccSession: b.ccSession, proc: b.proc, projectId: rpid });
         if (!rpid && identity.projectId) {
           // Unfiled now: its project row ends and the unfiled row opens, as noProjectStart does (events go to that row).
-          await endRowsElsewhere(s, identity._id, null);
+          await closeLeftBehind(s, identity._id, null);
           await again(() => registerUnfiledSession(ctx0, identity!._id, { hook: hook ?? 1, viaHook: true, machine: device.id, ccSession: b.ccSession }, undefined));
         }
         return reply(200, { token: made.token, expiresAt: made.expiresAt.toISOString(), session: identity._id });
@@ -194,8 +194,7 @@ export async function POST(req: Request): Promise<Response> {
           identity = made.identity;
         }
         await touchIdentity(identity!, { ccSession: b.ccSession, proc: b.proc, projectId: null });
-        if (b.ccSession && !session) await endRowsOnOtherDevices(s, device.id, b.ccSession);
-        await endRowsElsewhere(s, sid, null); // it was on a project and is filed nowhere now (an older hook's foreign remote): that row ends
+        await closeLeftBehind(s, sid, null); // it was on a project and is filed nowhere now (an older hook's foreign remote), or on another computer: those rows end
         await again(() => registerUnfiledSession(ctx0, sid, { hook: hook ?? 1, viaHook: true, branch: b.branch, machine: device.id, ccSession: b.ccSession, source: b.source, label: b.label, title: b.title, aiTitle: b.aiTitle, tool: b.tool, model: b.model, account: b.account }, folderName));
         return reply(200, { unfiled: true, ...(quiet ? { quiet: true } : {}), ...(token ? { token } : {}), expiresAt: until.toISOString() });
       };
@@ -225,10 +224,9 @@ export async function POST(req: Request): Promise<Response> {
         token = made.token;
         identity = made.identity;
         session = { id: made.id, projectId, expiresAt: made.expiresAt };
-        if (b.ccSession) await endRowsOnOtherDevices(s, device.id, b.ccSession); // the same Claude Code session on another computer of this person ends there
       } else dispatched = await dispatchedOfToken(session.id);
       await touchIdentity(identity!, { ccSession: b.ccSession, proc: b.proc, projectId, ...(token ? { dispatched } : {}) });
-      await endRowsElsewhere(s, session.id, projectId); // the session is on this project now: its rows on another project, or none, end
+      await closeLeftBehind(s, session.id, projectId); // the session is on this project now: its rows on another project, another computer or under an older id close, before the brief
       const ctx = ctx0;
       // The session id is the session record's id, never a token.
       // Where this session works: no version bump (lib/data/states.ts setWhere). Only when the hook sent something to show, and never from a folder that is not the project's.
