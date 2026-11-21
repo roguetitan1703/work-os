@@ -346,9 +346,11 @@ test('wait: errors and the hourly limit back off 30 s, 60 s, ... up to 5 min; a 
   assert.equal(lib.run.exitCode, 0);
   reset();
   setMarker(SID, { presence: { state: 'idle', at: Date.now(), postedAt: Date.now() } });
-  waitAnswers.push({ status: 401, body: { error: 'x' } });
+  // A 401 renews the token once (C3: this session had one) and asks again; a second refusal ends the wait.
+  waitAnswers.push({ status: 401, body: { error: 'x' } }, { status: 401, body: { error: 'x' } });
   await run('wait', SID);
   assert.equal(lib.run.exitCode, 0);
+  assert.equal(waits().length, 2, 'asked once more with the renewed token');
   waiter.clock.sleep = async () => {};
 });
 
