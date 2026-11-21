@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
   applicationName: "Work OS",
   appleWebApp: { capable: true, title: "Work OS", statusBarStyle: "default" },
-  icons: { apple: "/icons/180" },
+  icons: { apple: "/icons/180?v=2" },
   formatDetection: { telephone: false },
 };
 
