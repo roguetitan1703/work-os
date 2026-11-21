@@ -67,6 +67,32 @@ try {
     return (await call('/api/agent/start', other.key, { renew: true, ccSession: CC })).status === 404;
   })());
 
+  // ---- a swept row comes back when the same Claude Code session starts again (review: the stable id lands on the same row) ----
+  const p2 = (await must(MCP, 'add_project', { name: 'Renew Two', code: [{ remote: 'acme/renew-two' }] })).project.id;
+  await rawDb.collection('workerFolders').insertOne({ _id: `${dev.id}:rfold2`, deviceId: dev.id, folderId: 'rfold2', name: 'C:/code/renew-two', git: true, remote: 'acme/renew-two', projectId: p2, linkedAt: new Date(), seenAt: new Date(), missing: false, orgId: A.orgId, ownerId: A.userId });
+  const CC2 = crypto.randomUUID();
+  const st2 = await call('/api/agent/start', dev.key, { folders: ['rfold2'], path: 'C:/code/renew-two', ccSession: CC2, source: 'startup' });
+  const sid2 = st2.json?.brief?.session;
+  const T3 = st2.json?.token ?? '';
+  const row2 = () => rawDb.collection('presence').findOne({ session: sid2, projectId: p2 });
+  await rawDb.collection('presence').updateOne({ session: sid2, projectId: p2 }, { $set: { movedTo: 'someone:else', swept: new Date(), activity: { state: 'on', at: new Date(Date.now() - 60_000) } } });
+  const e3 = await call('/api/agent/event', T3, { event: 'prompt' });
+  check('a swept row (movedTo, not ended) still takes events', e3.status === 200 && (await row2())?.activity?.state === 'working', `${e3.status} ${e3.text.slice(0, 120)}`);
+  await rawDb.collection('presence').updateOne({ session: sid2, projectId: p2 }, { $set: { movedTo: 'someone:else', swept: new Date(), activity: { state: 'on', at: new Date(Date.now() - 60_000) } } });
+  const st2b = await call('/api/agent/start', dev.key, { folders: ['rfold2'], path: 'C:/code/renew-two', ccSession: CC2, source: 'resume' });
+  const r2 = await row2();
+  check('a start again with the same ccSession clears movedTo and swept on the row', st2b.status === 200 && st2b.json?.brief?.session === sid2 && r2 && !('movedTo' in r2) && !('swept' in r2), `${st2b.status} ${JSON.stringify(r2)?.slice(0, 160)}`);
+  await rawDb.collection('presence').updateOne({ session: sid2, projectId: p2 }, { $set: { activity: { state: 'on', at: new Date(Date.now() - 60_000) } } });
+  const e4 = await call('/api/agent/event', st2b.json?.token ?? T3, { event: 'prompt' });
+  check('…and an event after it updates the activity', e4.status === 200 && (await row2())?.activity?.state === 'working');
+
+  // ---- renew when the folder is no longer linked on this computer: unfiled, as a fresh start would ----
+  await rawDb.collection('workerFolders').updateOne({ _id: `${dev.id}:rfold2` }, { $set: { missing: true } });
+  await rawDb.collection('agentSessions').updateMany({ sessionId: sid2 }, { $set: { expiresAt: new Date(Date.now() - 1000) } });
+  const r3 = await call('/api/agent/start', dev.key, { renew: true, ccSession: CC2 });
+  const tok3 = await rawDb.collection('agentSessions').findOne({ hash: hash(r3.json?.token ?? 'x') });
+  check('renew for a project whose folder is unlinked here: a token with no project, and the record unfiled', r3.status === 200 && r3.json?.session === sid2 && tok3 && !tok3.projectId && !(await rawDb.collection('agentIdentities').findOne({ _id: sid2 })).projectId, `${r3.status} ${r3.text.slice(0, 120)} ${JSON.stringify(tok3)?.slice(0, 160)}`);
+
   // ---- its own limit: 20 per computer and Claude Code session, apart from the sign-ins ----
   let ok = 0;
   let last = 0;

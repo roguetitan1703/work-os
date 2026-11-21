@@ -161,8 +161,10 @@ export async function POST(req: Request): Promise<Response> {
       if (b.renew) {
         if (session) return reply(200, { expiresAt: session.expiresAt.toISOString(), session: session.id });
         if (!identity) return reply(404, { error: 'No session record for this Claude Code session on this computer.' });
-        const made = await createAgentSession(s, device.id, identity.projectId, cred, { identity, ccSession: b.ccSession, dispatched: await dispatchedOfToken(identity._id) });
-        await touchIdentity(identity, { ccSession: b.ccSession, proc: b.proc, projectId: identity.projectId });
+        // Its folder may no longer be linked on this computer: then it renews unfiled, as a fresh start would.
+        const rpid = identity.projectId && (await projectOnDevice(s, device.id, identity.projectId)) ? identity.projectId : null;
+        const made = await createAgentSession(s, device.id, rpid, cred, { identity, ccSession: b.ccSession, dispatched: await dispatchedOfToken(identity._id) });
+        await touchIdentity(identity, { ccSession: b.ccSession, proc: b.proc, projectId: rpid });
         return reply(200, { token: made.token, expiresAt: made.expiresAt.toISOString(), session: identity._id });
       }
 
@@ -199,8 +201,8 @@ export async function POST(req: Request): Promise<Response> {
       if (!found && identity?.projectId) {
         projectId = identity.projectId;
         elsewhere = true;
-        // An older hook cannot say it is elsewhere: it stays on the project only when it names no remote, or one of the project's own remotes.
-        if ((hook ?? 1) < 4 && b.remote) {
+        // An older hook (before protocol 5, the identity-aware one) cannot say it is elsewhere: it stays on the project only when it names no remote, or one of the project's own remotes.
+        if ((hook ?? 1) < 5 && b.remote) {
           const r = normalizeRemote(b.remote);
           if (r && !(await projectRemotes(s, device.id, projectId)).includes(r)) projectId = null;
         }

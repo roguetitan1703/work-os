@@ -157,7 +157,7 @@ export async function verifyAgentToken(token: string | null | undefined): Promis
   if (!doc.keyHash || d.hash !== doc.keyHash) return null; // made with a key the computer no longer has (a replace raced it)
   // The session's own record; a token older than the records gets one now (its session id is its own row id).
   const sid = doc.sessionId ?? doc._id;
-  let rec = await c.agentIdentities.findOne({ _id: sid });
+  let rec = await c.agentIdentities.findOne({ _id: sid, ownerId: doc.ownerId, orgId: doc.orgId });
   if (!rec) {
     const fresh: AgentIdentityDoc = { _id: sid, orgId: doc.orgId, ownerId: doc.ownerId, deviceId: doc.deviceId, ccSessions: doc.ccSession ? [doc.ccSession] : [], projectId: doc.projectId, createdAt: doc.createdAt, lastSeen: new Date(), ...(doc.dispatched ? { dispatched: doc.dispatched } : {}) };
     try {
@@ -179,6 +179,7 @@ export async function verifyAgentToken(token: string | null | undefined): Promis
   if (doc.expiresAt.getTime() - Date.now() < (ttl * 23) / 24) {
     const next = new Date(Date.now() + ttl);
     await c.agentSessions.updateOne({ _id: doc._id, expiresAt: doc.expiresAt }, { $set: { expiresAt: next } });
+    await c.agentIdentities.updateOne({ _id: sid }, { $set: { lastSeen: new Date() } }); // the record's 90-day expiry counts from the last use
     expiresAt = next;
   }
   return { id: sid, deviceId: doc.deviceId, deviceName: d.name, orgId: doc.orgId, ownerId: doc.ownerId, projectId: rec.projectId, expiresAt };

@@ -182,7 +182,7 @@ export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc |
       $setOnInsert: { createdAt: now, ...(lp ? {} : { label: '' }) },
       // A machine that is no longer one of the person's devices (or a name now reported plain) drops its device name.
       // A start_work after end_work is a session working again.
-      $unset: { endedAt: '', ...(o.machine && !o.machineName && !keepDevice ? { machineName: '' } : {}) },
+      $unset: { endedAt: '', movedTo: '', swept: '', ...(o.machine && !o.machineName && !keepDevice ? { machineName: '' } : {}) },
     },
     { upsert: true },
   );
@@ -407,7 +407,7 @@ async function recordState(
   const at = new Date(Math.min(now + SKEW_MS, Math.max(now - SKEW_MS, Number.isFinite(ev.at) ? ev.at! : now)));
   const before = await c.presence.findOneAndUpdate(
     // The idle wait (notify idle_prompt) never replaces a question the turn ended with: only the next prompt or tool does.
-    { _id, userId: s.userId, movedTo: { $exists: false }, $or: [{ activity: { $exists: false } }, { 'activity.at': { $lt: at } }], ...(idleWait(ev) ? { 'activity.why': { $ne: 'question' as const } } : {}) },
+    { _id, userId: s.userId, $nor: [{ endedAt: { $exists: true }, movedTo: { $exists: true } }], $or: [{ activity: { $exists: false } }, { 'activity.at': { $lt: at } }], ...(idleWait(ev) ? { 'activity.why': { $ne: 'question' as const } } : {}) },
     { $set: { activity: { state: next.state, at, ...(next.why ? { why: next.why } : {}), ...(ask ? { ask } : {}), ...(ev.event === 'tool-start' ? { open: true as const } : {}) }, lastSeen: new Date(now), ...(ev.event === 'prompt' ? { promptAt: at } : {}), ...(ACTIVE_EVENTS.has(ev.event) ? { activeAt: at } : {}) } },
     { returnDocument: 'before', projection: { activity: 1 } },
   );

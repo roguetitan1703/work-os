@@ -156,9 +156,9 @@ try {
   check('token: the same session brief again, no new token', r2.status === 200 && r2.json?.brief?.session === sid && !('token' in (r2.json ?? {})), `${r2.status} ${r2.text.slice(0, 160)}`);
   const r2b = await post(T1, {});
   check('token with no folder given: its own project', r2b.status === 200 && r2b.json?.brief?.project?.id === one, r2b.status);
-  const r3 = await post(T1, at('acme/agent-two'), { headers: { 'x-work-os-hook': '4' } });
+  const r3 = await post(T1, at('acme/agent-two'), { headers: { 'x-work-os-hook': '5' } });
   check('token at the folder of a project that is not on this PC: no 403 and no switch: it stays on its project, elsewhere (the project is not named)', r3.status === 200 && r3.json?.brief?.project?.id === one && r3.json?.elsewhere === true && !JSON.stringify(r3.json).includes('Agent Two'), `${r3.status} ${r3.text.slice(0, 160)}`);
-  const r3b = await post(T1, at('acme/x-secret'), { headers: { 'x-work-os-hook': '4' } });
+  const r3b = await post(T1, at('acme/x-secret'), { headers: { 'x-work-os-hook': '5' } });
   check("token at another organization's folder: no switch either, and nothing of that organization in the answer", r3b.status === 200 && r3b.json?.brief?.project?.id === one && !/X Secret/.test(r3b.text), r3b.status);
 
   // ---- projects the device key may not open ----
@@ -314,6 +314,10 @@ try {
   const old2 = await post(TI, { folders: ['nothere'], remote: 'https://github.com/acme/agent-one.git', ccSession: C1 }, { headers: H3 });
   const old3 = await post(TI, { folders: ['nothere'], ccSession: C1 }, { headers: H3 });
   check('old hook: the project\'s own remote, or no remote: stays filed on its project', old2.status === 200 && old2.json?.brief?.project?.id === one && old3.status === 200 && old3.json?.brief?.project?.id === one, `${old2.status} ${old3.status}`);
+  // hook 4 (the Lanes hook) is not identity-aware: it counts as old, so a foreign remote with no folder of the project does not stay filed
+  const old5 = await post(TI, { folders: ['nothere'], remote: 'https://github.com/other/zzz.git', ccSession: C1 }, { headers: H4 });
+  check('hook 4 (not identity-aware): a foreign remote and no folder of the project: unfiled, not kept on the project', old5.status === 200 && old5.json?.unfiled === true && (await rawDb.collection('agentIdentities').findOne({ _id: sI })).projectId === null, `${old5.status} ${old5.text.slice(0, 160)}`);
+  await post(pcI.key, { folders: ['ifold1'], path: 'C:/code/agent-one', ccSession: C1, source: 'resume', proc: PROC }, { headers: { 'x-work-os-hook': '5' } }); // filed again for what follows
   const old4 = await post(TI, { folders: ['nothere'], remote: 'https://github.com/other/zzz.git', ccSession: C1 }, { headers: { 'x-work-os-hook': '2' } });
   check('old hook (protocol 2): a foreign remote: the 404 as before, nothing changed', old4.status === 404 && old4.json?.unfiled === true && (await rawDb.collection('agentIdentities').findOne({ _id: sI })).projectId === one);
   // a session unfiled from the start gets its token, and the folder being linked later keeps the id
