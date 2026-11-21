@@ -13,7 +13,7 @@
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { EVENTS, HERE, MAX_BRIEF, postAgent, readKept, readMarker, run, updateMarker } from './hook-lib.mjs';
+import { EVENTS, HERE, MAX_BRIEF, extendToken, postAgent, readKept, readMarker, renewToken, run, updateMarker } from './hook-lib.mjs';
 import { gate, parent } from './hook-gate.mjs';
 
 export { parent }; // what tests replace
@@ -40,8 +40,10 @@ const working = (sid) => readMarker(sid)?.presence?.state === 'working';
 export async function wait(input, g = gate('wait', input)) {
   const sid = input.session_id;
   if (!sid || !g.run) return null;
-  const token = readKept(sid);
+  // C3: a session that had a token and has none (it ran out) asks for a new one first; no plain start here (never on a wait).
+  let token = readKept(sid) || (readMarker(sid)?.hadToken ? await renewToken(sid) : null);
   if (!token) return null;
+  let renewed = false;
   // No parent process found (an unknown shell, node-run claude on macOS): no wait at all. A waiter that cannot tell when its
   // session died would keep the dead session's row alive and could take a wake for it (hooks review M8).
   if (!g.hasParent()) return null;
@@ -81,6 +83,12 @@ export async function wait(input, g = gate('wait', input)) {
       if (stop.signal.aborted || gone()) return null; // it ended while the poll was open: a wake that still came is not printed
       if (sent && r?.status === 200) updateMarker(sid, (k) => { const left = Array.isArray(k.ack) ? k.ack.filter((id) => !sent.includes(id)) : []; if (left.length) k.ack = left; else delete k.ack; return k; });
       if (!holds(sid, lock)) return null;
+      if (r?.status === 401 && !renewed) { // the token ran out while the wait was open: renew once and ask again
+        renewed = true;
+        const t2 = await renewToken(sid);
+        if (t2) { token = t2; continue; }
+      }
+      if (r?.status === 200) extendToken(sid, r.b?.expiresAt); // C2: the answer carries the token's new end; the write keeps the file from being pruned
       if (r?.status === 200 && r.b) {
         backoff = clock.backoffStart;
         if (r.b.wake === true && typeof r.b.text === 'string' && r.b.text) {

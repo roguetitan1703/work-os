@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { MAX_BRIEF, git, markerDir, readMarker, sizeOf, statusHash, writeMarker } from './hook-lib.mjs';
+import { MAX_BRIEF, elsewhereHere, git, markerDir, readMarker, sizeOf, statusHash, writeMarker } from './hook-lib.mjs';
 
 export const COPY = 'WORK-STATE.md';
 const COPY_HEAD = /^Copy of the Work OS state, version (\d+)\./;
@@ -46,6 +46,8 @@ export function copyState(input, cwd, md = stateMarkdown(input.tool_response)) {
 /** Writes and commits WORK-STATE.md from md (commit: false writes only: the pre-tool hook must not run git commit, so a file it wrote is committed by the next post-tool). Every session that saves writes the file and commits only that file (git commit --only), so no other staged or modified file is swept in. Returns { version, committed, notes }, or null when nothing was written. */
 export function writeCopy(sid, cwd, md, { commit = true } = {}) {
   if (!md) return null;
+  // C4: a session that stays on its project from a folder that is not the project's writes no copy there.
+  if (sid && elsewhereHere(readMarker(sid), cwd)) return null;
   const top = git(cwd, ['rev-parse', '--show-toplevel']);
   if (!top) return null;
   // Builder worktrees are skipped: a generated file on two branches conflicts at every merge.

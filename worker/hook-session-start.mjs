@@ -13,7 +13,7 @@
 //                 network). That session has no token, so it sends no state events.
 import os from 'node:os';
 import { identityKey, identityOf } from './hook-identity.mjs';
-import { MAX_BRIEF, SESSION_TOKEN_RE, cut, deps, folderCandidates, frameInbox, git, keepProc, mcpCall, pruneOld, quickProcess, postAgent, quietPath, readKept, readMarker, keepToken, withinDeadline, repoFacts, run, sizeOf, statusHash, str, unfiledText, workerHome, writeMarker } from './hook-lib.mjs';
+import { MAX_BRIEF, SESSION_TOKEN_RE, agentStart, cut, deps, folderCandidates, whereOf, readProc, frameInbox, git, keepProc, mcpCall, pruneOld, quickProcess, postAgent, quietPath, readKept, readMarker, keepToken, withinDeadline, repoFacts, run, sizeOf, statusHash, str, unfiledText, workerHome, writeMarker } from './hook-lib.mjs';
 
 // The folder decides the project (H13): the body carries the ids of the worker folders that contain the session's folder
 // (`folders`, longest first); the server takes the first one linked on this PC. The git remote is sent as information only.
@@ -21,51 +21,13 @@ import { MAX_BRIEF, SESSION_TOKEN_RE, cut, deps, folderCandidates, frameInbox, g
 // with start_work (link), or to mark it not Work OS. Quiet (nothing printed): `claude -p` and SDK runs, temp folders, and a
 // folder the person marked not Work OS.
 
-/**
- * The brief through the worker's device key (POST /api/agent/start), or null. A session token kept from this session's
- * start is shown first; when it is refused (expired, revoked, another project) the device key opens a new session.
- * Returns { brief, token?, until? } (token and until only when a new session was made), or { unfiled: true, quiet } when
- * no project owns the folder (the server's 404), or null (over the limit, server trouble, no key).
- */
-async function agentStart(body, kept, timeoutMs) {
-  const home = workerHome();
-  if (!home) return null;
-  const post = (cred) => postAgent('/api/agent/start', cred, body, timeoutMs);
-  if (kept && SESSION_TOKEN_RE.test(kept)) {
-    const r = await post(kept);
-    if (r.status === 200 && r.b?.brief) return { brief: r.b.brief, ...dispatchedOf(r.b) };
-    if (r.status === 200 && r.b?.unfiled === true) return { unfiled: true, quiet: r.b.quiet === true }; // still no project; the token stays this session's
-    if (r.status !== 401 && r.status !== 403) return null; // over the limit, server trouble: no brief this time
-  }
-  const key = deps.deviceKey(home);
-  if (!key || !/^wkr_[A-Za-z0-9_-]{43}$/.test(key)) return null;
-  const r = await post(key);
-  if (r.unfiled) return { unfiled: true, quiet: r.quiet === true };
-  // Protocol 3: a folder no project owns is a session with no project; the answer carries a token that opens only events and waits.
-  if (r.status === 200 && r.b?.unfiled === true) return { unfiled: true, quiet: r.b.quiet === true, ...(SESSION_TOKEN_RE.test(r.b.token || '') ? { token: r.b.token, until: Date.parse(r.b.expiresAt || '') || undefined } : {}) };
-  if (r.status !== 200 || !r.b?.brief) return null;
-  const token = SESSION_TOKEN_RE.test(r.b.token || '') ? r.b.token : undefined;
-  const until = Date.parse(r.b.expiresAt || '') || undefined;
-  return { brief: r.b.brief, token, until, ...dispatchedOf(r.b) };
-}
-
-/** H15: the task ref when the server says the task dispatcher started this session (whatever started it on this PC); kept in the marker. */
-const dispatchedOf = (b) => (Number.isInteger(b?.dispatched) && b.dispatched > 0 && b.dispatched < 1e9 ? { dispatched: b.dispatched } : {});
-
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SOURCES = ['startup', 'resume', 'clear', 'compact'];
 
-/** What the hook knows about the session's folder: the start_work arguments (remote, branch and path are information) and the worker folder ids. */
-function whereOf(cwd) {
-  const remote = git(cwd, ['remote', 'get-url', 'origin']);
-  const branch = git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']);
-  return { remote, where: { ...(remote ? { remote } : {}), subdir: git(cwd, ['rev-parse', '--show-prefix']), branch, path: cwd, machine: os.hostname().slice(0, 40) } };
-}
-
 /** The marker of a session whose brief was shown: the baseline, project, production block and presence. */
-function briefMarker(sid, input, cwd, old, r, reports, dispatched) {
+function briefMarker(sid, input, cwd, old, r, reports, dispatched, els = {}) {
   const transcript = typeof input.transcript_path === 'string' && input.transcript_path ? input.transcript_path : old?.transcript;
-  writeMarker(sid, { ...(old?.promptAt ? { promptAt: old.promptAt } : {}), ...(transcript ? { transcript, ident: identityKey(identityOf(transcript)) } : {}), ...(dispatched ?? old?.dispatched ? { dispatched: dispatched ?? old.dispatched } : {}), status: old?.status ?? statusHash(cwd), offset: old?.offset ?? sizeOf(input.transcript_path), stopped: old?.stopped ?? false, project: r.project.name || old?.project, ...('production' in r ? (r.production ? { production: r.production } : {}) : old?.production ? { production: old.production } : {}), ...('contextWarn' in r ? (r.contextWarn === 150 || r.contextWarn === 200 ? { ctxWarn: r.contextWarn } : {}) : old?.ctxWarn ? { ctxWarn: old.ctxWarn } : {}), ...(old?.ctxSteps ? { ctxSteps: input.source === 'compact' ? Object.fromEntries(Object.entries(old.ctxSteps).filter(([k]) => k !== 'main')) : old.ctxSteps } : {}), ...(typeof r.shortOrders === 'string' && r.shortOrders ? { short: r.shortOrders.slice(0, 1200), ...(Number.isInteger(r.shortOrdersVersion) ? { shortV: r.shortOrdersVersion } : {}) } : {}), ...(Array.isArray(r.orders) ? { orders: r.orders.map((o) => o && o.noteId).filter((i) => typeof i === 'string' && /^[A-Za-z0-9_-]{6,64}$/.test(i)).slice(0, 10) } : old?.orders ? { orders: old.orders } : {}), ...(sameFolderText(r.sameFolder) ? { sameFolder: sameFolderText(r.sameFolder), sharedFolder: true } : old?.sharedFolder ? { sharedFolder: true } : {}), ...(reports ? { presence: { state: input.source === 'compact' ? 'working' : 'on', at: Date.now(), postedAt: Date.now() } } : old?.presence ? { presence: old.presence } : {}) });
+  writeMarker(sid, { ...(old?.promptAt ? { promptAt: old.promptAt } : {}), ...(reports || old?.hadToken ? { hadToken: true } : {}), ...(els.elsewhere ? { elsewhere: true, projectFolders: els.projectFolders || [] } : {}), ...(transcript ? { transcript, ident: identityKey(identityOf(transcript)) } : {}), ...(dispatched ?? old?.dispatched ? { dispatched: dispatched ?? old.dispatched } : {}), status: old?.status ?? statusHash(cwd), offset: old?.offset ?? sizeOf(input.transcript_path), stopped: old?.stopped ?? false, project: r.project.name || old?.project, ...('production' in r ? (r.production ? { production: r.production } : {}) : old?.production ? { production: old.production } : {}), ...('contextWarn' in r ? (r.contextWarn === 150 || r.contextWarn === 200 ? { ctxWarn: r.contextWarn } : {}) : old?.ctxWarn ? { ctxWarn: old.ctxWarn } : {}), ...(old?.ctxSteps ? { ctxSteps: input.source === 'compact' ? Object.fromEntries(Object.entries(old.ctxSteps).filter(([k]) => k !== 'main')) : old.ctxSteps } : {}), ...(typeof r.shortOrders === 'string' && r.shortOrders ? { short: r.shortOrders.slice(0, 1200), ...(Number.isInteger(r.shortOrdersVersion) ? { shortV: r.shortOrdersVersion } : {}) } : {}), ...(Array.isArray(r.orders) ? { orders: r.orders.map((o) => o && o.noteId).filter((i) => typeof i === 'string' && /^[A-Za-z0-9_-]{6,64}$/.test(i)).slice(0, 10) } : old?.orders ? { orders: old.orders } : {}), ...(sameFolderText(r.sameFolder) ? { sameFolder: sameFolderText(r.sameFolder), sharedFolder: true } : old?.sharedFolder ? { sharedFolder: true } : {}), ...(reports ? { presence: { state: input.source === 'compact' ? 'working' : 'on', at: Date.now(), postedAt: Date.now() } } : old?.presence ? { presence: old.presence } : {}) });
 }
 
 /**
@@ -78,10 +40,10 @@ function unfiledAnswer(sid, input, cwd, remote, folders, candidates, silent = fa
   const reports = !!(sid && readKept(sid));
   const presence = reports ? { presence: { state: input.source === 'compact' ? 'working' : 'on', at: Date.now(), postedAt: Date.now() } } : {};
   if (silent || quietPath(cwd)) {
-    if (sid && reports) writeMarker(sid, { ...(transcriptOf(input) ? { transcript: transcriptOf(input), ident: identityKey(identityOf(transcriptOf(input))) } : {}), status: statusHash(cwd), offset: sizeOf(input.transcript_path), stopped: true, quiet: true, ...presence });
+    if (sid && reports) writeMarker(sid, { ...(transcriptOf(input) ? { transcript: transcriptOf(input), ident: identityKey(identityOf(transcriptOf(input))) } : {}), status: statusHash(cwd), offset: sizeOf(input.transcript_path), stopped: true, quiet: true, ...(reports ? { hadToken: true } : {}), ...presence });
     return null;
   }
-  if (sid) writeMarker(sid, { ...(transcriptOf(input) ? { transcript: transcriptOf(input), ident: identityKey(identityOf(transcriptOf(input))) } : {}), status: statusHash(cwd), offset: sizeOf(input.transcript_path), stopped: true, unfiled: true, folder, path: cwd, ...presence });
+  if (sid) writeMarker(sid, { ...(transcriptOf(input) ? { transcript: transcriptOf(input), ident: identityKey(identityOf(transcriptOf(input))) } : {}), status: statusHash(cwd), offset: sizeOf(input.transcript_path), stopped: true, unfiled: true, folder, path: cwd, ...(reports ? { hadToken: true } : {}), ...presence });
   return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: unfiledText({ path: cwd, remote, folder, machine: os.hostname().slice(0, 40), candidates, worker: !!workerHome() }) } };
 }
 
@@ -118,6 +80,8 @@ async function startBrief(input) {
   const identity = identityOf(input.transcript_path);
   const keyIdentity = { ...(identity.title || identity.aiTitle ? { label: identity.title || identity.aiTitle } : {}), ...(identity.model ? { model: identity.model } : {}), ...(identity.account ? { account: identity.account } : {}) };
   let a = null;
+  // /clear runs in the same claude process: the server links the new Claude session to the old one by (pid, start time), so a clear sends the start time too (the cheap pid-only file is not enough).
+  if (sid && input.source === 'clear' && !readProc(sid)?.procStart && withinDeadline(8000) > 4000) keepProc(sid);
   if (workerHome()) {
     try { a = await agentStart({ ...where, folders, ...repoFacts(cwd), ...ids, ...identity }, sid ? readKept(sid) : null); } catch { a = null; }
   }
@@ -138,7 +102,7 @@ async function startBrief(input) {
   else return null;
   if (unfiled) return unfiledAnswer(sid, input, cwd, remote, folders, unfiled.candidates);
   if (!r || r.unmatched || !r.project) return null;
-  if (sid) briefMarker(sid, input, cwd, old, r, reports, a?.brief ? a.dispatched : undefined);
+  if (sid) briefMarker(sid, input, cwd, old, r, reports, a?.brief ? a.dispatched : undefined, a?.brief ? a : {});
   return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: formatBrief(r) } };
 }
 
@@ -159,7 +123,7 @@ export async function refile(input, timeoutMs = 2000) {
     if (a?.unfiled && a.quiet) return { unfiled: true, quiet: true };
     if (a?.brief?.project) {
       if (a.token) keepToken(sid, a.token, a.until);
-      briefMarker(sid, { ...input, source: 'startup' }, cwd, null, a.brief, true, a.dispatched);
+      briefMarker(sid, { ...input, source: 'startup' }, cwd, null, a.brief, true, a.dispatched, a);
       return { filed: a.brief.project.name };
     }
     if (!a?.unfiled || !process.env.WORK_OS_KEY) return a?.unfiled ? { unfiled: true } : null;

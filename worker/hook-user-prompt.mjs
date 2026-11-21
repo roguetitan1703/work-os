@@ -43,7 +43,7 @@ export async function userPrompt(input) {
   const now = line.startsWith('Filed') ? readMarker(sid) : m;
   // This prompt is the wake the idle wait just caused (the server checks the time too): the chain of the agent that woke the session carries on.
   const woke = !!now?.wokeAt && Date.now() - now.wokeAt < WOKE_MS;
-  const r = m?.unfiled && !line.startsWith('Filed') && !readKept(sid) ? null : await postEvent(sid, 'prompt', { deliver: true, ...(woke ? { woke: true } : {}) }, PROMPT_POST_MS);
+  const r = m?.unfiled && !line.startsWith('Filed') && !readKept(sid) ? null : await postEvent(sid, 'prompt', { deliver: true, ...(woke ? { woke: true } : {}) }, PROMPT_POST_MS, { startFrom: input });
   const after = readMarker(sid);
   if (after && (!after.unfiled || readKept(sid))) {
     const { wokeAt, turnStatus, sameFolder, ...rest } = after;
