@@ -31,6 +31,7 @@ mcp-get|mcp-get.mjs|none|plain
 mcp-relist|mcp-relist.mjs|none|plain
 nav|nav.mjs|nav|plain
 nav-cross|nav-cross.mjs|nav|plain
+pull-refresh|pull-refresh.mjs|nav|plain
 nav-preload-1|nav-preload-1.mjs|nav|plain
 nav-preload-2|nav-preload-2.mjs|nav|plain
 fix-check|fix-check.mjs|none|plain
