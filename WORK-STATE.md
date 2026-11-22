@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 325. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 326. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -19,6 +19,7 @@ Copy of the Work OS state, version 325. WORK-STATE.md is a copy of the State, wr
 11. Next release carries: org Orders under Delpat at the top of Notes (df94585) and a Share button on the note page (merged to dev after review; flow-h9 132/0), plus the save-with-action hook change, and pull to refresh keeps its spinner 500 ms (builder B, reviewed; e2e 5/0 light and dark). — waits on Om's yes to release
 12. Session identity: one Claude session got three Work OS identities (Grant Leads, 20-21 Nov): an unfiled start (subfolder/parent cwd) then refile minted new ids; old rows never end and show Working. Urgent no-sid fix (plan note 18463bb8c3) building in slot B; then review, release, prod cleanup of k:oauth_ rows. Full Fable audit done (artifact AWVHXWgdKaxtb6K9NLHcHk); Om said yes to the full M0-M6 migration after it; piece 1 (builder-a e56a607) is replaced by M2. — waits on Fable review + slot A build
 13. Old personal inbox removed, merged to dev (builder B 84f0ea9 + review fixes 9e05306; leak-audit 283/0, flow-ms1/4/5/6, messages-to-sessions, flow-pickup pass). After the next deploy the lead runs scripts/close-inbox-leftovers.mjs on prod (2 rows, Akash)., toUser read paths, 2 leftover messages for Akash): bug, the 20 Nov no-inbox change left them. Plan c347dde4a0, building in slot B; leftover script runs on prod after deploy. — waits on builder B, then review
+14. Process tooling (Om 22 Nov): docs/ARCHITECTURE.md (owned questions), check:owners ratchet, npm run check, checks on every dev push. Thinker planning; then plan review, builder in slot S, review, merge. Until it lands, agents are told the file is missing.
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -100,4 +101,4 @@ Copy of the Work OS state, version 325. WORK-STATE.md is a copy of the State, wr
 
 ## Parked
 - 2 lines in Work OS: list_parked, or the project page.
-<!-- work-os-copy sha1:5d167bb00178c484e618935cee31ae1949b82869 -->
+<!-- work-os-copy sha1:3b26b1ca8075df417927039fdf8a2f96410209b1 -->
