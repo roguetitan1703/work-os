@@ -1,3 +1,5 @@
+> 22 Nov 2026: built (19 to 21 Nov: H6 and H7, Identity). A message is read with `message_status`; the `inbox` tool and the project inbox are gone. Where this text differs, `docs/flows/agent-system.md` and `docs/HANDOVER.md` section 3 are right.
+
 # Live sessions, messaging, feedback and notes shelves (design, 18 Nov 2026)
 
 Om 18 Nov: cross-platform, cross-account messaging like Claude's own session messaging; every agent lives in a project;
@@ -67,9 +69,13 @@ Gap: an idle cloud session with nothing running cannot be woken; the message wai
 
 ## 5. Work OS as a friend; feedback from agents (Om)
 - Every refusal says why and what to do instead (Claude Code's tool-error style), never a bare error.
-- Friction is detected server-side at no token cost: the same tool 3+ times in a few minutes with different arguments,
-  repeated empty results, the same refusal twice. The next answer carries one line: "Looks hard? Tell Work OS with
-  `feedback` (one line)." Applies to chat sessions too.
+- Friction is noticed server-side at no token cost. Built (H10, 22 Nov): when the same tool is refused the same way
+  (the same `tool:kind`, any arguments) 3 times in 30 minutes, that third refused answer itself ends with one line:
+  "Looks hard? <tool> was refused 3 times in the last 30 minutes (<kind>). Tell Work OS in one line with feedback
+  {project, text, tool: "<tool>"} and go on; your refused calls are attached for you." At most once per 30 minutes per
+  session (else per key); a feedback call, recorded or a duplicate, silences it for 30 minutes; never on a refused
+  feedback call, a rate-limit refusal or a schema refusal the tool never saw (`lib/mcp/refusals.ts`). Applies to chat
+  sessions too. Not built: the same tool 3+ times in a few minutes with different arguments, and repeated empty results.
 - `feedback {text, rule?}` files an item in the Work OS project with the recent calls attached.
 - Pushback is counted per rule; when several sessions push on one rule, Om gets one Need (keep / loosen / drop) with
   their reasons. Agents may also propose changes to the notes shelves this way (Om).
@@ -127,7 +133,7 @@ Accepted (the design above is read with these):
    `/api/agent/wait`, one per session (lockfile). A hook cannot start Monitor or a background task. Timeout limits per
    surface: hand check.
 2. Hooks deliver sender, kind and id only, never the body (keeps the "ids and counts only" rule of for-you.ts and the
-   wait line); the session reads the body through `inbox`, where it is labelled. Ship, money and credentials stay
+   wait line); the session reads the body through `message_status`, where it is labelled. Ship, money and credentials stay
    server-side (a Need answered in the app), never a label the model reads.
 3. Keys: a hook-only key type (event and wait routes, never MCP: the MCP has mail send/delete); a project-scoped key
    for cloud environments.

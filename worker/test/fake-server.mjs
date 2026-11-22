@@ -2,7 +2,7 @@ import http from 'node:http';
 
 export const TEST_TOKEN = 'wkr_' + 'A'.repeat(43);
 
-// Minimal fake of the three /api/worker endpoints from docs/launcher.md.
+// Minimal fake of the three /api/worker endpoints from docs/ops/launcher.md.
 export async function startFakeServer() {
   const s = { folders: null, links: [], jobs: [], statuses: [], badAuth: 0, enabled: true };
   const server = http.createServer((req, res) => {

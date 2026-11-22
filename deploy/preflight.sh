@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Read-only check of a server before Work OS is installed on it (docs/hosting.md "1. The server"). It changes nothing:
+# Read-only check of a server before Work OS is installed on it (docs/ops/hosting.md "1. The server"). It changes nothing:
 # no files written, no packages installed, no services touched. Run it on the box and send the output to whoever
 # installs, privately: it describes the other apps on the box. It prints no secrets (it never reads /etc/work-os/env
 # or any other app's config values).
@@ -36,8 +36,8 @@ if [ -r /etc/os-release ]; then
   info "OS: ${PRETTY_NAME:-$ID}"
   case "${ID:-}" in
     ubuntu | debian) ;;
-    amzn) warn "Amazon Linux: nginx sites live in /etc/nginx/conf.d (no sites-available); packages via dnf (docs/hosting.md)" ;;
-    *) warn "not Ubuntu/Debian: the install commands in docs/hosting.md need translating" ;;
+    amzn) warn "Amazon Linux: nginx sites live in /etc/nginx/conf.d (no sites-available); packages via dnf (docs/ops/hosting.md)" ;;
+    *) warn "not Ubuntu/Debian: the install commands in docs/ops/hosting.md need translating" ;;
   esac
 fi
 info "kernel $(uname -r)"
@@ -47,7 +47,7 @@ if [ -n "$TOKEN" ]; then
   ITYPE="$(curl -s -m 2 -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-type 2>/dev/null || true)"
   [ -n "$ITYPE" ] && info "EC2 instance type: $ITYPE"
   case "$ITYPE" in
-    t4g.nano | t4g.micro | t4g.small | t3.* | t4g.*) info "burstable: CPU credits are shared by every app on the box (docs/cpu.md \"Graviton\")" ;;
+    t4g.nano | t4g.micro | t4g.small | t3.* | t4g.*) info "burstable: CPU credits are shared by every app on the box (docs/ops/cpu.md \"Graviton\")" ;;
   esac
 else
   info "EC2 metadata not reachable (not EC2, or IMDS off/hop limit): instance type unknown"
@@ -57,8 +57,8 @@ if have free; then
   MEM_MB="$(free -m | awk 'NR==2{print $2}')"
   SWAP_MB="$(free -m | awk '/^Swap:/{print $2}')"
   AVAIL_MB="$(free -m | awk 'NR==2{print $7}')"
-  [ "${MEM_MB:-0}" -lt 3000 ] && [ "${SWAP_MB:-0}" -lt 1900 ] && info "under 3 GB RAM and no 2 GB swap: fine, the box does not build (docs/hosting.md section 7); 2 GB swap is the optional safety net (section 1)"
-  [ "${AVAIL_MB:-0}" -lt 700 ] && warn "under 700 MB available now: the app alone wants about 350-450 MB (docs/cpu.md); other apps already use most of it"
+  [ "${MEM_MB:-0}" -lt 3000 ] && [ "${SWAP_MB:-0}" -lt 1900 ] && info "under 3 GB RAM and no 2 GB swap: fine, the box does not build (docs/ops/hosting.md section 7); 2 GB swap is the optional safety net (section 1)"
+  [ "${AVAIL_MB:-0}" -lt 700 ] && warn "under 700 MB available now: the app alone wants about 350-450 MB (docs/ops/cpu.md); other apps already use most of it"
 fi
 if [ -r /proc/swaps ]; then sed -n '2,$p' /proc/swaps | awk '{printf "  ·     swap device %s (%s, %d MB)\n",$1,$2,$3/1024}'; fi
 if have df; then
@@ -87,7 +87,7 @@ fi
 if [ -x /opt/work-os/node/bin/node ]; then
   ok "Work OS's own Node: /opt/work-os/node ($(/opt/work-os/node/bin/node -v))"
 else
-  info "Work OS's own Node 22 (/opt/work-os/node) is not installed yet (docs/hosting.md section 2); the system node stays as it is"
+  info "Work OS's own Node 22 (/opt/work-os/node) is not installed yet (docs/ops/hosting.md section 2); the system node stays as it is"
 fi
 for t in npm git curl flock systemd-run gh certbot mongodump mongorestore age aws rclone ufw; do
   if have "$t"; then
@@ -152,7 +152,7 @@ if have nginx || [ -x /usr/sbin/nginx ]; then
     fi
     # shellcheck disable=SC2086
     WC="$(grep -hoE '^[[:space:]]*worker_connections[[:space:]]+[0-9]+' $CONF_FILES 2>/dev/null | awk '{print $2}' | head -1)"
-    info "worker_connections ${WC:-default (512/768)}: push streams need about 2 per open tab (docs/hosting.md \"Push\")"
+    info "worker_connections ${WC:-default (512/768)}: push streams need about 2 per open tab (docs/ops/hosting.md \"Push\")"
   fi
   if [ "$ROOT_RUN" = 1 ]; then
     if "$NGX" -t >/dev/null 2>&1; then ok "nginx -t passes now"; else warn "nginx -t fails BEFORE Work OS is added: fix that first"; fi

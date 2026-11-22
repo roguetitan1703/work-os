@@ -1,4 +1,4 @@
-# Server build (docs/hosting.md "The build"): the server (an arm64 Graviton box with 2 GB, shared with other apps)
+# Server build (docs/ops/hosting.md "The build"): the server (an arm64 Graviton box with 2 GB, shared with other apps)
 # does not build Work OS itself. This builds the .next folder on an arm64 runner, in the same folder path a release
 # has on the server, and publishes it as work-os-<commit>.tar.gz (+ .sha256) on the repo's "builds" release, with a
 # signed build provenance attestation. `sudo work-os-deploy` downloads it, verifies the attestation (this workflow,
@@ -48,7 +48,7 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          # = the box's Work OS Node (/opt/work-os/node, docs/hosting.md section 2); the deploy checks the major.
+          # = the box's Work OS Node (/opt/work-os/node, docs/ops/hosting.md section 2); the deploy checks the major.
           node-version: 22.23.4
           package-manager-cache: false
 

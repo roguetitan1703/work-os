@@ -1,4 +1,4 @@
-// Flow S2 (docs/flows/step-1.md "Tests"): the State is versioned, appends never clash, the repo copy carries the version,
+// Flow S2 (docs/archive/step-1.md "Tests"): the State is versioned, appends never clash, the repo copy carries the version,
 // import_state parses a WORK-STATE.md, an MCP write to an Orders note is refused for every key, lines by others are
 // labelled, a project made private takes its State along; and the State card and the Orders switch in the app.
 // Seed profile: none.

@@ -1,4 +1,4 @@
-// Cost budgets (tests/load/budgets.json, docs/cpu.md "Multi-user"): a short version of the load simulation that fails
+// Cost budgets (tests/load/budgets.json, docs/ops/cpu.md "Multi-user"): a short version of the load simulation that fails
 // the build when a change makes a request, a page, an idle tab or an idle worker cost more than its budget.
 // Seeds the load team (20 people, 50 projects, 2,000 tasks; tests/load/seed.mjs), then:
 //   1. per request kind, one at a time: database operations, documents examined, collection scans, response KB

@@ -5,8 +5,8 @@ import { pollJobs } from '@/lib/data/launcher';
 import { dispatchFor } from '@/lib/data/dispatcher';
 import { flushQueuedAlerts } from '@/lib/alerts';
 
-// Worker poll: folder links and pending jobs (docs/launcher.md). Device key checked in workerRoute.
-// Before the jobs are read, the dispatcher may claim a queued task for this computer (docs/dispatcher.md);
+// Worker poll: folder links and pending jobs (docs/ops/launcher.md). Device key checked in workerRoute.
+// Before the jobs are read, the dispatcher may claim a queued task for this computer (docs/ops/dispatcher.md);
 // its start job then comes back in this same response. A dispatcher error never blocks the worker's poll.
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';

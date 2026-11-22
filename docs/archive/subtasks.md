@@ -1,3 +1,5 @@
+> Record, 22 Nov 2026: the design of Nov 2026, built as written. Subtasks is a live feature; what is true now is in `docs/HANDOVER.md` (H2, Subtasks). Not updated.
+
 # Subtasks (design, #183 and Akash's "task linking … hierarchical like threads" in #165)
 
 Status: built (2026-11) as designed below. Code: "Subtasks" in `lib/data/tasks.ts`, `components/subtasks.tsx`; tests

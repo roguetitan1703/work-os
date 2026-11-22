@@ -1,4 +1,4 @@
-// Self-update (docs/launcher.md "Self-update"). A worker installed from the download asks Work OS for the latest release
+// Self-update (docs/ops/launcher.md "Self-update"). A worker installed from the download asks Work OS for the latest release
 // at start and every 6 hours. It installs one only when the version is newer than its own and the release is signed by
 // one of the keys in its own release-keys.mjs: whoever controls the server can serve any file, but cannot sign one. It
 // writes the verified file beside the current one (temp file, then a rename), lets that file unpack itself into the

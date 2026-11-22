@@ -1,4 +1,4 @@
-# Caddy site for Work OS at work.delpat.in (docs/hosting.md section 5). The server already runs Caddy for other
+# Caddy site for Work OS at work.delpat.in (docs/ops/hosting.md section 5). The server already runs Caddy for other
 # sites, so this file only ADDS one site block: copy it to /etc/caddy/sites/work-os.caddy and add one line to the
 # existing Caddyfile, `import /etc/caddy/sites/work-os.caddy`, then `caddy validate --config /etc/caddy/Caddyfile`
 # and `sudo systemctl reload caddy`. Never replace or restart the whole Caddyfile: other sites live in it.
@@ -10,7 +10,7 @@
 # What it carries over from the nginx site (deploy/nginx/work-os.conf, kept as the alternative):
 # - the client address: X-Real-IP is set to the address Caddy saw, replacing whatever the client sent; Caddy also
 #   replaces X-Forwarded-For (it trusts no proxy in front of it) and sets X-Forwarded-Proto/-Host. The app reads them
-#   only with TRUST_PROXY=1 (docs/auth.md). x-workos-client-ip, the header Better Auth reads, is dropped here too (the
+#   only with TRUST_PROXY=1 (docs/ops/auth.md). x-workos-client-ip, the header Better Auth reads, is dropped here too (the
 #   app's auth route also deletes it before setting its own);
 # - push streams (/api/stream, /api/worker/stream): every event flushed at once (flush_interval -1), no compression
 #   (this site has no `encode`; Next compresses pages itself), no timeout on the 30-minute streams;

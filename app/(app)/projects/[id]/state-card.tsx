@@ -29,7 +29,7 @@ const KINDS: { id: Kind; label: string; op: 'add_next' | 'add_later' | 'park' | 
 const NEXT_SHOWN = 3;
 
 /**
- * The project's State (docs/flows/step-1.md), folded: the first three Next lines, Later and Decisions as counts that open,
+ * The project's State (docs/archive/step-1.md), folded: the first three Next lines, Later and Decisions as counts that open,
  * and one Add control (Next, Later or a decision). Now is the purpose header's (components/purpose-header.tsx). Edits are
  * the same versioned writes the MCP tool makes: Now and reordering carry the version the card was drawn from, so a change a
  * teammate or an agent made in the meantime is never overwritten silently (the card then shows the current State and asks

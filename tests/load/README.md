@@ -1,7 +1,7 @@
 # Load simulation
 
 What a team of 20 costs the server, measured the way the EC2 box runs it (production build, `next start`, heap
-capped like `deploy/systemd/work-os.service`). Results and the t3.small projection: docs/cpu.md "Multi-user".
+capped like `deploy/systemd/work-os.service`). Results and the t3.small projection: docs/ops/cpu.md "Multi-user".
 Throwaway mongod and database only; `.env.local` is moved aside for the run and put back.
 
 ```

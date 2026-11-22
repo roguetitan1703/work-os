@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 312. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 334. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -17,8 +17,9 @@ Copy of the Work OS state, version 312. WORK-STATE.md is a copy of the State, wr
 9. Per-project Working plan: the server swaps a project's own '## Working plan' into the Delpat Orders (dev 80aee73, reviewed). Work OS plan note 6f53fca67c waits for Om to mark it as the project's Orders; Grant Leads writes its own and Om marks it. Swap live (330d27c). Om questions whether per-project plans are needed; Grant Leads lead asked replace vs add (m_590d82a004e7). — waits on Om: release yes, mark the notes
 10. Discord v4 live (a3b867a, 21 Nov): listener running on the server, connected, no gateway errors. Waits on Om's steps in note 34a1383581 (portal URLs, Message Content intent, DISCORD_CLIENT_SECRET, wos emoji, Connect Discord, bug channels); then try a real post in #delpat-os. — waits on Om's Discord steps
 11. Next release carries: org Orders under Delpat at the top of Notes (df94585) and a Share button on the note page (merged to dev after review; flow-h9 132/0), plus the save-with-action hook change, and pull to refresh keeps its spinner 500 ms (builder B, reviewed; e2e 5/0 light and dark). — waits on Om's yes to release
-12. Session identity: one Claude session got three Work OS identities (Grant Leads, 20-21 Nov): an unfiled start (subfolder/parent cwd) then refile minted new ids; old rows never end and show Working. Plan 4277b6ce02 building in slot A; Fable reviewing the whole harness (identity, presence, messaging) before anything merges. — waits on Fable review + slot A build
+12. Session identity: one Claude session got three Work OS identities (Grant Leads, 20-21 Nov): an unfiled start (subfolder/parent cwd) then refile minted new ids; old rows never end and show Working. No-sid fix: plan v2 d9f2c3aef8 got 'change' (review 198eaed5c2: replay checks 2-4 need fixing, injection hits foreign tools); P1 passed on desktop; thinker writing v3; replay 89f040c fails on dev; then slot B build, review, release, prod cleanup. M0-M6 migration after it. — waits on Fable review + slot A build
 13. Old personal inbox removed, merged to dev (builder B 84f0ea9 + review fixes 9e05306; leak-audit 283/0, flow-ms1/4/5/6, messages-to-sessions, flow-pickup pass). After the next deploy the lead runs scripts/close-inbox-leftovers.mjs on prod (2 rows, Akash)., toUser read paths, 2 leftover messages for Akash): bug, the 20 Nov no-inbox change left them. Plan c347dde4a0, building in slot B; leftover script runs on prod after deploy. — waits on builder B, then review
+14. Process tooling (Om 22 Nov): docs/ARCHITECTURE.md (owned questions), check:owners ratchet, npm run check, pre-push, checks.yml. Plan note 41a34eeb88 (audit 5e073d193f) got 'change' (review c9e22af9f8: ratchet can go up, patterns miss copies); v6 is note 3b7a2e85fa; next: fresh review of v6; then plan review, builder in slot S, review, merge. check:links fails on dev until it lands. Waits on: plan review.
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -93,7 +94,18 @@ Copy of the Work OS state, version 312. WORK-STATE.md is a copy of the State, wr
 - Pull to refresh broken in the PWA (Om, 21 Nov): the code (components/mobile/pull-to-refresh.tsx) hasn't changed since 14 Oct; the code read found no cause; a touch test on master (slot S, iPhone and Pixel) is running. — waits on the slot S touch test; Om's phone OS
 - tests/e2e/pull-refresh.mjs checks the spinner at 450 ms against a 500 ms hold: tight, may flake on a slow machine; widen if it does (merged 7fa6d88, 21 Nov).
 - Identity pieces E2/F: tests that shorten AGENT_TOKEN_TTL_MS must use 10 min or more (the hook refuses a renew within 5 min of the last). Hook and server must deploy together: an old server costs each fresh start 2 of its 30 sign-ins per hour. — waits on piece E and the real-use test
+- Three identity bugs from the 22 Nov live test (note 287f5b8dc4): A legacy identities have empty ccSessions; B hook-session-end doesn't record the end, rows stay 'on' (check whether Sessions shows them Working); C `claude -p` doesn't exit, likely a hook. Om: do later; thinker plans first, then a builder. — waits on Om picks the time
+- docs/OVERVIEW.md misses real uses found while rewriting the pitch (22 Nov): a transfer/handover scene (only one line under End), the account switch, and claude.ai or phone chat creating tasks and notes that reach a session. It also says Needs can be answered on Discord, but HANDOVER says Discord has no buttons. Thinker plans, then a builder fixes it.
+- Wake fix (22 Nov): hook-wait.mjs waiter exits ~58 min after the last turn, so an idle session goes 'off' and send_message only queues. Raise the timeout to 24 h (hook-lib.mjs:54-55); hookNote should use the roster's process list (messages.ts:81). — waits on Om's go
+- Bug D (22 Nov): an MCP-key start_work row (machine = hostname 'Victus', no ccSession) sits beside the hook row and shows Working while lastSeen is under 10 min. Fix: the hook sign-in ends or links the same person's no-ccSession key rows for this device and project. Build with bugs A/B (note 287f5b8dc4). — waits on Om's go
+- Feedback nudge merged to dev 22 Nov (2315dd8, replay bed7669), waits on release Need 14; was: never built (seen 22 Nov: 3 save_state refusals in a row, no hint). Designed in docs/flows/session-messaging.md:72-74 ('Looks hard? Tell Work OS with feedback'). Refusals are recorded (lib/mcp/refusals.ts) but only end_work and feedback read them. Fix in the tool() wrapper beside forYouAfter (server.ts ~789): 2-3 same tool:kind refusals -> one line, rate-limited per session. — waits on Om's go; thinker plan
+- Feedback-nudge leftovers: agents get -32602 schema refusals, the namesOtherSession throw, read_note with id, and silently stripped op fields with no hint; look at each (plan 21b9aeb969 step 6).
+- tests/e2e/whats-new.mjs ALL list is stale (lacks the newest entries), so the suite fails 3 checks on dev.
+- check:links fails on dev: AGENTS.md links docs/ARCHITECTURE.md, which the tooling plan (171cad723d, v5 in progress) creates.
+- WIP piece 1 (builder-a e56a607: wake fix + lib/data/session-state.ts) needs a plan for its review fixes (note 4c99f6a229), then rebase off the merged nudge and merge after the tooling work.
+- Cloud sessions get no pre-push hook: have the cloud SessionStart hook set core.hooksPath .githooks (worker change, after the tooling work).
+- No-sid: plan v8 is note 983ae63baf (review of v7: b4f66bc1f0). Next: a fresh plan review of v8. Step 17 must also add holdExists, newLease and LEASE_RE to server.ts's slots import. Stopped at the usage limit, 22 Nov.
 
 ## Parked
 - 2 lines in Work OS: list_parked, or the project page.
-<!-- work-os-copy sha1:c0745f15801cdd545c1678dfe7b4b3e39d9d7c5a -->
+<!-- work-os-copy sha1:4e71007aa708b2426ae483540265fa754f0bec34 -->

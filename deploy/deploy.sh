@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploys Work OS on the server (docs/hosting.md "Deploying"). Installed root-owned as /usr/local/sbin/work-os-deploy
+# Deploys Work OS on the server (docs/ops/hosting.md "Deploying"). Installed root-owned as /usr/local/sbin/work-os-deploy
 # (never run from a release: a release is written by the build user and by npm install scripts).
 #
 #   sudo work-os-deploy                      deploy origin/master
@@ -48,7 +48,7 @@ BUILD_BRANCH=master
 PORT="${PORT:-$(sed -n 's/^[[:space:]]*WORK_OS_PORT=//p' "$ENV_FILE" 2>/dev/null | tail -n 1 | tr -cd '0-9' || true)}"
 PORT="${PORT:-3100}"
 MIN_FREE_MB="${MIN_FREE_MB:-1536}"
-# Node 22 for Work OS only (docs/hosting.md section 2); the box's own node (20) belongs to the other apps.
+# Node 22 for Work OS only (docs/ops/hosting.md section 2); the box's own node (20) belongs to the other apps.
 NODE_DIR="${WORK_OS_NODE:-/opt/work-os/node}"
 REPO="$APP_ROOT/repo"
 RELEASES="$APP_ROOT/releases"
@@ -114,7 +114,7 @@ if [ -n "$ROLLBACK" ] && [ -z "$REF" ]; then
   echo "rolling back to the release before this one"
 fi
 
-[ -x "$NODE_DIR/bin/node" ] || { echo "no Node at $NODE_DIR/bin/node (docs/hosting.md section 2: Node 22 for Work OS)" >&2; exit 2; }
+[ -x "$NODE_DIR/bin/node" ] || { echo "no Node at $NODE_DIR/bin/node (docs/ops/hosting.md section 2: Node 22 for Work OS)" >&2; exit 2; }
 case "$("$NODE_DIR/bin/node" -v)" in v22.*) ;; *) echo "$NODE_DIR is Node $("$NODE_DIR/bin/node" -v), not 22.x (package.json engines)" >&2; exit 2 ;; esac
 # Work OS uses Atlas only: never the box's own MongoDB (the other apps' docker container on 27017). A guard against a
 # slip, not a guarantee: it reads the names the app reads (MONGODB_URI and the MONGO_*_URI / MONGO_*_URL ones, lib/db.ts)
@@ -140,7 +140,7 @@ not_atlas() {
     [[ "$v" =~ ^mongodb\+srv://([^@/?#]*@)?[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.mongodb\.net(/|\?|$) ]] || echo "$k"
   done
 }
-[ -r "$ENV_FILE" ] || { echo "$ENV_FILE is missing or unreadable (docs/hosting.md section 4)" >&2; exit 2; }
+[ -r "$ENV_FILE" ] || { echo "$ENV_FILE is missing or unreadable (docs/ops/hosting.md section 4)" >&2; exit 2; }
 if [ "$(conf_value ALLOW_NON_ATLAS)" != 1 ]; then
   BAD_DB="$(not_atlas <"$ENV_FILE" 2>/dev/null | head -n 1 || true)"
   if [ -n "$BAD_DB" ]; then
@@ -157,7 +157,7 @@ if [ -n "$FREE_MB" ] && [ "$FREE_MB" -lt "$MIN_FREE_MB" ]; then
 fi
 if ! grep -qE '^[[:space:]]*NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=.+' "$ENV_FILE" 2>/dev/null; then
   echo "  note: NEXT_SERVER_ACTIONS_ENCRYPTION_KEY is not set in $ENV_FILE: each release gets its own key, so a page" >&2
-  echo "        open across a deploy fails its next server action once (docs/hosting.md \"The build's secrets\")" >&2
+  echo "        open across a deploy fails its next server action once (docs/ops/hosting.md \"The build's secrets\")" >&2
 fi
 
 REF="${REF:-origin/master}"
@@ -177,7 +177,7 @@ trap 'rm -rf "$TMPD"' EXIT
 github_repo() {
   local r
   r="$(sed -n 's/^[[:space:]]*GITHUB_REPO=//p' "$DEPLOY_CONF" 2>/dev/null | tail -n 1 | tr -d '\r"'"'"' ' || true)"
-  [[ "$r" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "set GITHUB_REPO=<owner>/<repo> in $DEPLOY_CONF (docs/hosting.md section 4)" >&2; return 1; }
+  [[ "$r" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "set GITHUB_REPO=<owner>/<repo> in $DEPLOY_CONF (docs/ops/hosting.md section 4)" >&2; return 1; }
   [ "$(stat -c '%u' "$DEPLOY_CONF")" = 0 ] && [ -z "$(find "$DEPLOY_CONF" -perm /022)" ] ||
     { echo "$DEPLOY_CONF must belong to root and be writable by root only" >&2; return 1; }
   echo "$r"
@@ -187,7 +187,7 @@ github_repo() {
 # GitHub-hosted runner. --bundle verifies offline against the downloaded attestation (no GitHub login needed).
 verify_attestation() {
   local f="$1" bundle="$2" repo="$3"
-  command -v gh >/dev/null || { echo "  gh (GitHub CLI) is not installed: cannot check the build's attestation (docs/hosting.md section 2)" >&2; return 1; }
+  command -v gh >/dev/null || { echo "  gh (GitHub CLI) is not installed: cannot check the build's attestation (docs/ops/hosting.md section 2)" >&2; return 1; }
   GH_NO_UPDATE_NOTIFIER=1 GH_PROMPT_DISABLED=1 gh attestation verify "$f" --bundle "$bundle" --repo "$repo" \
     --signer-workflow "$repo/$WORKFLOW" --source-digest "$SHA" --source-ref "refs/heads/$BUILD_BRANCH" \
     --deny-self-hosted-runners >/dev/null ||
@@ -283,7 +283,7 @@ prepared() {
 }
 
 [ "$(stat -c '%u' "$RELEASES")" = 0 ] && [ ! -L "$RELEASES" ] ||
-  { echo "$RELEASES must be root's (sudo chown root:root $RELEASES; docs/hosting.md section 4)" >&2; exit 2; }
+  { echo "$RELEASES must be root's (sudo chown root:root $RELEASES; docs/ops/hosting.md section 4)" >&2; exit 2; }
 if prepared; then
   echo "  already prepared: $REL"
 else
@@ -297,7 +297,7 @@ else
     uname -m | as_build tee "$REL/BUILD_ARCH" >/dev/null
     echo "  npm ci"
     as_build_capped bash -c "cd '$REL' && npm ci --ignore-scripts --no-audit --no-fund --loglevel=error" || fail_prepare "npm ci FAILED"
-    echo "  build (on this box: slow, and it needs swap; docs/hosting.md \"The build\")"
+    echo "  build (on this box: slow, and it needs swap; docs/ops/hosting.md \"The build\")"
     as_build_capped env NEXT_TELEMETRY_DISABLED=1 NEXT_BUILD_CPUS="${NEXT_BUILD_CPUS:-1}" \
       NODE_OPTIONS="--max-old-space-size=${BUILD_MEMORY_MB:-1536}" bash -c "cd '$REL' && npm run build >'$REL/build.log' 2>&1" ||
       { echo "BUILD FAILED (nothing changed; the app still runs the old release): tail $REL/build.log" >&2; exit 1; }

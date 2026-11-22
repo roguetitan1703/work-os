@@ -1,4 +1,4 @@
-// Discord per person (docs/multi-user.md phase 3): the Discord tools show each person only the channels their Discord account can see,
+// Discord per person (docs/ops/multi-user.md phase 3): the Discord tools show each person only the channels their Discord account can see,
 // and the blocked list keeps blocks on what the saver cannot see. Connect Discord itself, the buttons and the DMs are in discord-v4.mjs.
 // Run against a stub Discord API. Seed profile: none.
 import http from 'node:http';

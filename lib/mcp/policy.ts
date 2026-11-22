@@ -57,11 +57,16 @@ export const CALLS = { key: LIMITS.callsPerHour, session: 300, sessionSave: 400,
 /** The writes that save a session's work: a busy sibling session never blocks these. */
 export const SAVING_TOOLS = new Set(['save_state', 'end_work', 'set_doing', 'log_progress', 'complete_task', 'hand_in']);
 
-/** Policy refusals; their message is shown to the caller. */
+/**
+ * Policy refusals; their message is shown to the caller. `rate` is true only for a rate-limit refusal (reserveCall refused the
+ * call): feedback is rate-limited too, so that refusal never carries the feedback hint (lib/mcp/refusals.ts).
+ */
 export class PolicyError extends InputError {
-  constructor(message: string) {
+  readonly rate: boolean;
+  constructor(message: string, o: { rate?: true } = {}) {
     super(message);
     this.name = 'PolicyError';
+    this.rate = o.rate === true;
   }
 }
 
@@ -303,7 +308,7 @@ export async function beforeTool(caller: Caller, tool: string, o: { session?: st
           : !o.session
             ? `Rate limit: this key made ${t.key} Work OS calls in the last hour (max ${CALLS.key}, shared by every session of the key). This call passed no session, so it has no share of its own: pass session (the id start_work gave you) to get one.`
             : `Rate limit: this key made ${t.key} Work OS calls in the last hour (max ${CALLS.key} for reads and most writes, shared by every session of the key; this session made ${t.session}). Saving State (save_state, end_work, set_doing, log_progress, complete_task, hand_in) still works while this session is under ${CALLS.sessionSave}.`;
-    throw new PolicyError(`${head}${await topSessions(caller, keyId)} Wait a few minutes, or batch work with apply_changes.`);
+    throw new PolicyError(`${head}${await topSessions(caller, keyId)} Wait a few minutes, or batch work with apply_changes.`, { rate: true });
   }
   if (TRASH_TOOLS.has(tool)) {
     const t = await reserve(keyId, 'trash', 1, trashWindowStart(), LIMITS.trashPerWindow);

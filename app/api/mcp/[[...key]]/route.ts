@@ -13,7 +13,7 @@ import { callerFromOAuthToken, OAUTH_ACCESS_PREFIX } from '@/lib/oauth';
 import { mcpResource } from '@/lib/oauth-config';
 import { hookHeader, repoHeader, runWithRequestContext, sessionHeader, type RequestContext } from '@/lib/request-context';
 
-// MCP endpoint (Streamable HTTP, stateless). Signs in with OAuth (the MCP authorization flow: lib/oauth.ts, docs/auth.md) or a
+// MCP endpoint (Streamable HTTP, stateless). Signs in with OAuth (the MCP authorization flow: lib/oauth.ts, docs/ops/auth.md) or a
 // Work OS API key (lib/api-keys.ts, "Advanced: API keys"), sent in a header. A request without a valid token gets 401 and a
 // WWW-Authenticate header pointing at /.well-known/oauth-protected-resource, which is how claude.ai finds the sign-in.
 //   Authorization: Bearer wosat_…  an OAuth access token: acts as the person who approved it, in the organization they

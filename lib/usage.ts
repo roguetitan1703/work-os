@@ -1,4 +1,4 @@
-// Request log (docs/usage-log.md). proxy.ts classifies every request it sees (requestKind, requestCaller, routePattern) and calls
+// Request log (docs/ops/usage-log.md). proxy.ts classifies every request it sees (requestKind, requestCaller, routePattern) and calls
 // recordRequest() (event.waitUntil), so counting never blocks or slows a request; counts are written in small batches.
 // Stored as hourly buckets in `requestStats`: { _id: 'YYYY-MM-DDTHH' (UTC), at, total, counts: { 'kind|caller|route': n } }.
 // Nothing user-typed is stored: routes are fixed patterns, ids and query strings are dropped,

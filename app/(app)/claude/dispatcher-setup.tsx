@@ -11,7 +11,7 @@ import { write } from './auto-refresh';
 import { field } from './ui';
 
 // Claude › Set up: the switch ("Claude starts tasks I give it"), how many tasks at once, and the standing-instructions note
-// every session reads first (docs/dispatcher.md). One state for the page: the switch in step 3 and the note in Advanced
+// every session reads first (docs/ops/dispatcher.md). One state for the page: the switch in step 3 and the note in Advanced
 // read and write the same settings. Every write is the same server action as before (dispatcherSettingsAction): it acts
 // on the signed-in person's own setting only and keeps the rule that turning it on needs one of their own notes.
 

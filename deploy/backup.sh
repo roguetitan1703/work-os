@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Nightly backup of the Work OS database (docs/hosting.md "Backups"): mongodump of MONGODB_DB, encrypted with age to a
+# Nightly backup of the Work OS database (docs/ops/hosting.md "Backups"): mongodump of MONGODB_DB, encrypted with age to a
 # public key whose private half is NOT on this server, uploaded to Cloudflare R2 (or S3) and checked by size.
 # Installed as /usr/local/sbin/work-os-backup; run by work-os-backup.timer (as workos), and by the cut-over with
 # --local-only first.
@@ -93,7 +93,7 @@ mkdir -p "$DIR"
 chmod 0700 "$DIR"
 # A plaintext cut-over dump nobody removed.
 find "$DIR" -maxdepth 1 -name '*.archive.gz' ! -name '*-nightly-*' -mtime +3 2>/dev/null | while IFS= read -r old; do
-  echo "warning: plaintext dump $(basename "$old") is older than 3 days: delete it (docs/hosting.md section 11)" >&2
+  echo "warning: plaintext dump $(basename "$old") is older than 3 days: delete it (docs/ops/hosting.md section 11)" >&2
 done || true
 FREE="$(df -Pk "$DIR" | awk 'NR==2 {print $4}')"
 if [ -z "$FREE" ] || [ "$FREE" -lt "$MINFREE" ]; then

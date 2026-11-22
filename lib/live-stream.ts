@@ -69,7 +69,7 @@ export function liveResponse(req: Request, who: StreamOwner): Response {
     headers: {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-store, no-transform',
-      // nginx: pass each event on at once (docs/hosting.md "Push").
+      // nginx: pass each event on at once (docs/ops/hosting.md "Push").
       'X-Accel-Buffering': 'no',
     },
   });

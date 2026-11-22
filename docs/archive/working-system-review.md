@@ -1,3 +1,5 @@
+> Record, 22 Nov 2026: a review of 18 Nov. Not updated; the system as it is now is in `docs/HANDOVER.md` and `docs/flows/`.
+
 # How Om and his agents work: Fable review (18 Nov 2026)
 
 **Verdict: go, but smaller and in a different order.** Most of what you need is built and not switched on. Switch it

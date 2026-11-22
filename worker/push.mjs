@@ -1,6 +1,6 @@
 import { checkBaseUrl } from './config.mjs';
 
-// Push from Work OS (docs/launcher.md "Push"): one long-lived GET /api/worker/stream with the device key. The server
+// Push from Work OS (docs/ops/launcher.md "Push"): one long-lived GET /api/worker/stream with the device key. The server
 // sends `jobs` when there is something to fetch (a start, resume or stop job, a task given to Claude, a folder
 // linked); the worker then polls /api/worker/jobs at once. The events carry no job data.
 // While the stream is up the worker polls only every few minutes (a fallback); while it is down it polls as before.

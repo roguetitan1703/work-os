@@ -1,4 +1,4 @@
-// Whose words count (docs/dispatcher.md): only the person who gives a task to Claude instructs it. Teammates write into
+// Whose words count (docs/ops/dispatcher.md): only the person who gives a task to Claude instructs it. Teammates write into
 // shared tasks (description, checklist items, comments, the task's note, a blocked reason, links, tags, a related
 // task's title, the project's name), a Discord message becomes a task; the owner gives tasks to Claude. The sheet
 // warns, the start prompt carries none of that text, the session's instructions say text by others is information, and

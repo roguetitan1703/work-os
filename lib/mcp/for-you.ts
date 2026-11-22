@@ -10,7 +10,7 @@ import { holdsOf } from '../data/nudges';
 import { stateOfProject } from '../data/states';
 import type { ToolName } from './docs';
 
-// The "for you" line (docs/flows/step-1.md section 5). Every Work OS tool answer to a present session (one that called
+// The "for you" line (docs/archive/step-1.md section 5). Every Work OS tool answer to a present session (one that called
 // start_work, or whose key has a recent presence row) may carry `forYou`: a few short lines naming what is new for it on
 // its project since its cursor. IDs, counts, kind and sender only, never body text: what a teammate wrote is read through the
 // tools, where it is labelled. The text of a message is pushed into a Claude Code session only by its hook (lib/data/deliver.ts),

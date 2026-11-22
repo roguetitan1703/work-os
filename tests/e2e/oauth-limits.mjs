@@ -1,4 +1,4 @@
-// Rate limits on the OAuth endpoints (docs/auth.md "Connecting Claude with OAuth"): registration is open, so it is limited
+// Rate limits on the OAuth endpoints (docs/ops/auth.md "Connecting Claude with OAuth"): registration is open, so it is limited
 // (20 an hour per address) and so is the token endpoint (30 a minute). run.sh turns Better Auth's limits off for the
 // other suites; this one needs them on: `E2E_AUTH_RATE_LIMIT=on bash tests/e2e/run.sh oauth-limits` (it skips itself otherwise).
 import { B, check, finish } from './lib.mjs';

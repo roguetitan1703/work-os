@@ -20,7 +20,7 @@ const field =
 const label = (f: FolderView) => `${f.name}${f.branch ? ` (${f.branch})` : ''}`;
 
 /**
- * The folders on the person's computers that belong to this project (docs/launcher.md): grouped by computer, each with its
+ * The folders on the person's computers that belong to this project (docs/ops/launcher.md): grouped by computer, each with its
  * branch, Unlink (asks first), suggestions with the same repo, and Link folder. Shown on the project's Info tab and on its
  * Claude tab.
  */

@@ -9,7 +9,7 @@ import { InputError, NotFoundError } from './errors';
 import { normalizeRemote } from './code-locations';
 import { cleanUsage, saveUsage } from './claude-usage';
 
-// Session launcher, Work OS side (docs/launcher.md). Workers report folders (names + ids, never
+// Session launcher, Work OS side (docs/ops/launcher.md). Workers report folders (names + ids, never
 // paths), poll for jobs, and report sessions. The person links folders to projects and starts, resumes
 // or stops sessions; each of those is a job for one device.
 
@@ -335,7 +335,7 @@ export type SessionView = { id: string; deviceId: string; deviceName: string; fo
 const ONLINE_MS = 2 * 60_000;
 
 /**
- * Whose computers (docs/multi-user.md: computers and agent sessions are private to their owner). Every launcher,
+ * Whose computers (docs/ops/multi-user.md: computers and agent sessions are private to their owner). Every launcher,
  * dispatcher and overview path driven by a signed-in person works only with devices where ownerId and orgId match;
  * another person's device, folder or session answers "not found". The worker routes act for their own device.
  */
@@ -566,7 +566,7 @@ export async function addJob(scope: DeviceScope, deviceId: string, job: { kind: 
   return id;
 }
 
-/** Start a new session in a linked folder. prompt: only what the person typed at Start (docs/launcher.md rule 3). */
+/** Start a new session in a linked folder. prompt: only what the person typed at Start (docs/ops/launcher.md rule 3). */
 export async function startSession(scope: DeviceScope, projectId: string, key: string, prompt?: string): Promise<string> {
   const f = await folderDoc(scope, key);
   if (f.projectId !== projectId) throw new InputError('That folder is not linked to this project');
@@ -575,7 +575,7 @@ export async function startSession(scope: DeviceScope, projectId: string, key: s
 }
 
 /**
- * The session row and the start job. Also used by the dispatcher (docs/dispatcher.md), which passes `dispatched`
+ * The session row and the start job. Also used by the dispatcher (docs/ops/dispatcher.md), which passes `dispatched`
  * (the fixed template is the prompt, never task text) and a session id it already recorded on the task.
  */
 export async function createStartJob(scope: DeviceScope, f: WorkerFolderDoc, projectId: string, text: string, dispatched?: { taskId: string; sessionId: string; ref: number }): Promise<string> {
@@ -650,7 +650,7 @@ export async function openSessionInVscode(scope: DeviceScope, deviceId: string, 
   const sid = sessionId.toLowerCase();
   const known = (d.claudeSessions?.items ?? []).some(i => i.sessionId === sid) || (d.reopen?.items ?? []).some(i => i.sessionId === sid);
   if (!known) throw new NotFoundError('That session is not on this computer');
-  // A dispatched run runs on its own run key only (docs/dispatcher.md "Run keys"); VS Code would open it with the person's own
+  // A dispatched run runs on its own run key only (docs/ops/dispatcher.md "Run keys"); VS Code would open it with the person's own
   // config and key. Resume opens it as a dispatched run. The worker asks the server again before it opens anything.
   if (await c.workerSessions.findOne({ _id: sid, ownerId: scope.userId, dispatched: true }, { projection: { _id: 1 } })) throw new InputError(DISPATCHED_NO_VSCODE);
   return addJob(scope, deviceId, { kind: 'vscode', sessionId: sid });

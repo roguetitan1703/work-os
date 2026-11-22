@@ -1,6 +1,6 @@
 # Sign-in, members and keys
 
-Phase 1 of `docs/multi-user.md`. Work OS signs people in with [Better Auth](https://better-auth.com) 1.7 (pinned exact)
+Phase 1 of `docs/ops/multi-user.md`. Work OS signs people in with [Better Auth](https://better-auth.com) 1.7 (pinned exact)
 on the existing MongoDB, in Better Auth's own collections: `user`, `account`, `session`, `verification`, `twoFactor`,
 `passkey`, `organization`, `member`, `invitation`, `apikey`, `rateLimit`. Data is **not** scoped by organization yet:
 every member sees everything. Phase 2 does that.
@@ -24,7 +24,7 @@ every member sees everything. Phase 2 does that.
   also sees the link, to copy when email is off; with `INVITE_LINK_TO_INVITER=0` it goes only by email (below). The
   invited person picks a name and password there and lands on Today; someone who already has an account signs in
   first and clicks *Join*. Sign-up is otherwise closed. Pending invitations are listed and can be cancelled.
-- **Roles and removal** (phase 4, docs/multi-user.md "As built: phase 4"):
+- **Roles and removal** (phase 4, docs/ops/multi-user.md "As built: phase 4"):
   - Owners and admins change roles and remove members. Only an owner makes, changes or removes an owner.
   - The last owner can't be demoted or removed. An owner may step down while there is another one.
   - Removing someone signs them out of the organization and deletes their keys for it. It revokes their computers there and stops the tasks they gave to Claude.
@@ -132,7 +132,7 @@ Tests: `tests/e2e/oauth.mjs` (the whole flow with a scripted client and the real
 
 Here Work OS is the OAuth **client** (`lib/delpat-os.ts`). Delpat OS (issuer `https://os.delpat.in`) registered Work OS as a confidential
 client (`client_secret_post`, grants `authorization_code` and `refresh_token`, scope `mcp`, redirect exactly
-`<APP_URL>/api/delpat-os/callback`). Off unless `DELPAT_OS_CLIENT_ID` and `DELPAT_OS_CLIENT_SECRET` are set (docs/hosting.md): then there
+`<APP_URL>/api/delpat-os/callback`). Off unless `DELPAT_OS_CLIENT_ID` and `DELPAT_OS_CLIENT_SECRET` are set (docs/ops/hosting.md): then there
 is no card, no tabs, the callback is a 404 and the actions say "not set up".
 
 - **Link** (Settings › Connections, a Delpat OS row in the table with Link / Unlink: `app/(app)/settings/connections.tsx`, `delpat-os-link-buttons.tsx`, a server action): makes a random 256-bit state and a
@@ -193,7 +193,7 @@ Tests: `tests/e2e/delpat-os.mjs` (stub Delpat OS; server mode `delpat`, which se
 - **Every request knows who.** Server actions use `requireCaller()` + `withCaller()` (or `asCaller(fn)`), API routes
   `callerFromRequest(req)`, MCP and worker routes their key. Since phase 2 every data call takes the caller's scope
   and history records the actor as an object with its user (`{kind:'agent', agent:'claude', userId}`; see
-  docs/multi-user.md "As built").
+  docs/ops/multi-user.md "As built").
 - **Proxy cost:** the signed `workos.session_data` cookie (compact, 120 s) is checked without a database read. When
   it is stale the proxy calls `getSession` once and forwards the refreshed cookies. So a revoked or signed-out session
   can keep opening pages (and GET routes) for up to 2 minutes; a removed member cannot (their role is read on every

@@ -4,7 +4,7 @@ import type { Document } from 'mongodb';
 import type { ChecklistItem, Link, TaskSource } from '../types';
 import { scoped, type Scope } from '../scope';
 
-// Who wrote the text Claude reads (docs/dispatcher.md "Whose words count"). Only the person Claude acts for gives it
+// Who wrote the text Claude reads (docs/ops/dispatcher.md "Whose words count"). Only the person Claude acts for gives it
 // instructions; text written by anyone else (a teammate's description, checklist item, link, blocked reason, comment or
 // note, or a Discord message turned into a task) is information about the work, and get_task, read_note and the Give
 // to Claude sheet say so, naming who wrote it.

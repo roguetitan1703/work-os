@@ -9,7 +9,7 @@ Type=oneshot
 User=workos
 Group=workos
 EnvironmentFile=/etc/work-os/env
-# Root-owned copy of deploy/cron-alerts.sh (docs/hosting.md section 4), not the release's.
+# Root-owned copy of deploy/cron-alerts.sh (docs/ops/hosting.md section 4), not the release's.
 ExecStart=/usr/local/sbin/work-os-cron-alerts
 NoNewPrivileges=yes
 PrivateTmp=yes

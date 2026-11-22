@@ -12,7 +12,15 @@ for the same things. Reuse `components/ui/*` and the shared phone pieces in docs
 UI done, look at it by eye at 390 px and 1280 px (light and dark) next to what surrounds it, and say in the report what
 you looked at.
 
-A user-facing feature adds one What's new entry to `lib/whats-new.ts` in the same change (docs/HANDOVER.md section 8,
-"What's new").
+Owned questions: docs/ARCHITECTURE.md lists the questions that have one owner each (which session a call belongs to, which project it is on, whether it is alive, what it owns, whether text reached it, where a stored fact comes from). A change that needs one of these answers calls the owner. A new answer anywhere else is a rejected change. `npm run check:owners` enforces it with a baseline that only goes down. No tool argument carries a fact the server can know.
+
+Docs (the map is docs/README.md): docs/OVERVIEW.md is the entry point, one line per feature and workflow with links;
+docs/HANDOVER.md is the reference, one section per feature (how it is built, its files and rules); docs/flows/ holds the
+few step-by-step paths; docs/ops/ the how-tos for running Work OS; docs/archive/ records that are never updated. A change
+updates its feature's HANDOVER section when it changes what the section says, and its flow file if it has one, in the
+same commit. A change to deploy, hosting, setup, the worker or the launcher updates its docs/ops/ file (ops/launcher.md
+also holds live feature text, Usage and Turbo). A change that adds or removes a feature or workflow also updates its line
+in docs/OVERVIEW.md. A user-facing change also adds one What's new entry to `lib/whats-new.ts` (docs/HANDOVER.md
+section 8, "What's new"). `npm run check:links` must pass. The reviewer checks all of this.
 
 Agent-facing text (lib/mcp/docs.ts, MCP answers, worker hooks) uses the Words in docs/HANDOVER.md section 3; `npm run check:words` must pass.

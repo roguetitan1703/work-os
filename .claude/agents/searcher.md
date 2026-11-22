@@ -10,6 +10,8 @@ You map code, read-only: change no files. Bash is only for git log/show and sear
 Answer the lead's question in under 1,000 words:
 - the files and functions involved, with line ranges;
 - the data flow;
+- every entrance to the situation (each caller, route, hook, tool);
+- every other place that answers the same question in its own way;
 - the existing patterns the change should copy;
 - the tests that cover the area;
 - gotchas.

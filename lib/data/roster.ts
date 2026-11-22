@@ -9,7 +9,7 @@ import { shortAddress } from './presence';
 import { openNeedRows } from './roster-needs';
 import { slotHolders, machineKey } from './slots';
 
-// The roster (docs/flows/plan-1-3.md slice 7): who is working on what, and where. A worker is a present session
+// The roster (docs/archive/plan-1-3.md slice 7): who is working on what, and where. A worker is a present session
 // (presence rows, lib/data/presence.ts, grown with model, account, machine, branch, doing, parent and slot). The rows
 // come through the scoped door, so a viewer sees only the workers on projects they can read.
 //

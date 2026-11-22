@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The daily digest (docs/flows/plan-1-3.md slice 2): a new alert kind `digest`, on by default for everyone. Someone who
+// The daily digest (docs/archive/plan-1-3.md slice 2): a new alert kind `digest`, on by default for everyone. Someone who
 // saved their alert switches and has "Due today" off keeps the morning quiet: their `digest` is saved off. Everyone
 // else who saved switches gets `digest` saved on (the same as the default, so nothing depends on the default later).
 //

@@ -91,7 +91,7 @@ function addressesIn(v: string | string[] | undefined, field: string): string[] 
 }
 
 /**
- * Unattended agents draft outside mail; a person sends (docs/PRODUCT.md section 9). Refuses, before Mailloom is called,
+ * Unattended agents draft outside mail; a person sends (docs/archive/product-14-nov.md section 9). Refuses, before Mailloom is called,
  * any mail that would reach an address whose domain is not exactly the domain of the caller's own mailbox.
  */
 function refuseOutside(mailbox: string, recipients: string[]) {

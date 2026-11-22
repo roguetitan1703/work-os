@@ -4,6 +4,7 @@
 import { B, ME, check, finish, makeUser, mkDevice, mkKey, rawDb } from './lib.mjs';
 import { mcpH, must } from './flow-lib.mjs';
 
+const hdr = sess => ({ 'X-Work-OS-Session': sess });
 const pid = async name => (await rawDb.collection('projects').findOne({ name }))._id;
 try {
   const cc = await mkKey({ agent: 'claude-code', name: 'H13 cc' });
@@ -90,9 +91,9 @@ try {
   const row = fid => rawDb.collection('workerFolders').findOne({ folderId: fid, deviceId: { $in: [pc1.id, tPc.id, xPc.id] } });
   const l1 = await mcpH(cc, 'start_work', { project: 'H13 Alpha', folder: 'h13fa', link: true, machine: 'pc-one', label: 'h13 link' });
   check('H13 link: project + folder + link files the caller\'s own folder and answers the brief with filed.how folder', !l1.isError && l1.json?.project?.id === A && l1.json?.filed?.how === 'folder' && (await row('h13fa')).projectId === A, l1.text.slice(0, 300));
-  const missing = await mcpH(cc, 'start_work', { project: 'H13 Alpha', folder: 'h13nosuch', link: true });
-  const tessF = await mcpH(cc, 'start_work', { project: 'H13 Alpha', folder: 'h13tess', link: true });
-  const xavF = await mcpH(cc, 'start_work', { project: 'H13 Alpha', folder: 'h13xav', link: true });
+  const missing = await mcpH(cc, 'start_work', { project: 'H13 Alpha', folder: 'h13nosuch', link: true, session: 'h13m1' }, hdr('h13m1'));
+  const tessF = await mcpH(cc, 'start_work', { project: 'H13 Alpha', folder: 'h13tess', link: true, session: 'h13m2' }, hdr('h13m2'));
+  const xavF = await mcpH(cc, 'start_work', { project: 'H13 Alpha', folder: 'h13xav', link: true, session: 'h13m3' }, hdr('h13m3'));
   check('H13 link: another member\'s folder and another organization\'s folder are "not found", worded as a folder that does not exist, and nothing linked', missing.isError && tessF.isError && xavF.isError && tessF.text === missing.text && xavF.text === missing.text && /not found/i.test(missing.text) && (await row('h13tess')).projectId === null && (await row('h13xav')).projectId === null, `${missing.text} | ${tessF.text} | ${xavF.text}`);
   const taken = await mcpH(cc, 'start_work', { project: 'H13 Alpha', folder: 'h13taken', link: true });
   check('H13 link: a folder already linked to another project is refused and stays', taken.isError && /linked to another project/.test(taken.text) && (await row('h13taken')).projectId === OTHER, taken.text.slice(0, 200));
@@ -104,8 +105,8 @@ try {
   const noWhere = await mcpH(cc, 'start_work', { project: 'H13 Alpha', link: true });
   check('H13 link: link without project, and link with neither folder nor path and machine, are refused', noProj.isError && noWhere.isError, `${noProj.text.slice(0, 100)} | ${noWhere.text.slice(0, 100)}`);
   await must(cc, 'add_project', { name: 'H13 Private', visibility: 'private' });
-  const priv = await mcpH(kT, 'start_work', { project: 'H13 Private', folder: 'h13tess', link: true });
-  const nope = await mcpH(kT, 'start_work', { project: 'H13 No Such Project', folder: 'h13tess', link: true });
+  const priv = await mcpH(kT, 'start_work', { project: 'H13 Private', folder: 'h13tess', link: true, session: 'h13m4' }, hdr('h13m4'));
+  const nope = await mcpH(kT, 'start_work', { project: 'H13 No Such Project', folder: 'h13tess', link: true, session: 'h13m5' }, hdr('h13m5'));
   check('H13 link: a project the caller cannot read is "not found", like one that does not exist, and the folder stays unlinked', priv.isError && nope.isError && priv.text.replace('H13 Private', 'X') === nope.text.replace('H13 No Such Project', 'X') && (await row('h13tess')).projectId === null, `${priv.text} | ${nope.text}`);
 
   await must(cc, 'add_project', { name: 'H13 Pathy' });

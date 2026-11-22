@@ -1,4 +1,4 @@
-// Delpat OS import is hidden when the server has no Delpat OS client set (docs/auth.md "Linking Delpat OS"): no card in
+// Delpat OS import is hidden when the server has no Delpat OS client set (docs/ops/auth.md "Linking Delpat OS"): no card in
 // Settings › Connections, no tabs in New project, the callback is a 404 and the actions refuse. Seed profile: none.
 import { B, check, finish, launch, login } from './lib.mjs';
 

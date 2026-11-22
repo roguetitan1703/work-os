@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createCore } from '../core.mjs';
 import { createLoop, FALLBACK_POLL_SECONDS } from '../loop.mjs';
 
-// Requests an idle worker makes in an hour (docs/cpu.md "Push"): the real loop and core against a counting fake API,
+// Requests an idle worker makes in an hour (docs/ops/cpu.md "Push"): the real loop and core against a counting fake API,
 // on a simulated clock. Idle = no jobs, no Work OS session, the same Claude sessions on the PC all hour.
 function idleHour({ pushUp, jobAt = null }) {
   let t = 1_000_000_000;

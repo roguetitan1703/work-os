@@ -1,4 +1,4 @@
-// Flow N3 (docs/flows/plan-1-3.md slice 4 meets slice 1): Needs inside start_work, the forYou line and State.
+// Flow N3 (docs/archive/plan-1-3.md slice 4 meets slice 1): Needs inside start_work, the forYou line and State.
 //   - start_work lists the Needs the caller asked that were answered (once), then the open ones addressed to the caller;
 //   - the forYou line says "your Need #N was answered" to the asker's session and "1 Need for you" to the addressee, ids only;
 //   - a session finds only its own answers; a caller with no session id finds those of the same key, never another key's;

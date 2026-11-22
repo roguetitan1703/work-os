@@ -163,7 +163,7 @@ Who may do what:
 - An owner may step down on their own row. Nobody removes themselves.
 - **There is always an owner.** A demotion of an owner is refused while they are the only one. The write is checked again after it is made and undone if it left none, so two owners demoting each other at the same moment cannot both win. Removing an owner first demotes them through the same guarded step.
 - The server checks every rule (`changeRole`, `removeMember`); the page only hides what you cannot do.
-- Changes are direct writes to Better Auth's `member` collection, not through its organization endpoints. Those endpoints stay off (docs/auth.md), and our rules (last owner, admins and owners) are not Better Auth's.
+- Changes are direct writes to Better Auth's `member` collection, not through its organization endpoints. Those endpoints stay off (docs/ops/auth.md), and our rules (last owner, admins and owners) are not Better Auth's.
 
 **Removing a member** ends their access to that organization at once:
 - the membership is deleted;
@@ -234,14 +234,14 @@ Tests: `tests/e2e/team.mjs` (new). It covers:
 
 ## As built: phase 5 push (2026-10-22, the code part)
 
-Open pages and workers are told when something changed instead of asking every 30 s. Server setup it needs: docs/hosting.md §12 "Push" and deploy/nginx/work-os.conf. The page stream is `/api/stream`, not `/api/live` (that is the liveness route outside the proxy).
+Open pages and workers are told when something changed instead of asking every 30 s. Server setup it needs: docs/ops/hosting.md §12 "Push" and deploy/nginx/work-os.conf. The page stream is `/api/stream`, not `/api/live` (that is the liveness route outside the proxy).
 
 **Server-Sent Events, not WebSockets.** Every message goes one way (server to client); writes still go through server actions and the worker's HTTP routes. SSE is a plain GET that a Next 16 route handler can stream (`ReadableStream`), so it runs under `next start` and `next dev` as they are: no custom server, no `server.mjs`, nothing outside Next's router. The browser's `EventSource` sends the session cookie by itself. The worker reads the stream with `fetch` (Node 20+, no new dependency). A WebSocket would need a custom server for the upgrade, and Next's docs advise against one.
 
 **Two streams.**
 - `GET /api/stream` (pages). The proxy's session check runs first. The route then checks the session and the membership in its organization again (`callerFromHeaders`). Events: `hello`, `hint {t, s?}`, `bye {r}`, a ping comment every 25 s.
 - `GET /api/worker/stream` (workers). It makes the same check as every worker route (`workerDevice` in lib/worker-route.ts): a `wkr_` key that is not revoked, an owner who is still a member, and the rate limit. Events: `hello`, `jobs`, `bye`.
-- Limits (lib/live.ts): at most 10 page streams per person (across organizations) and 2 worker streams per computer. A new one past that closes the oldest with `bye {r:'limit'}`; that tab stays on its slow poll until it is back in view, and that worker waits a minute before trying again. Removing a member or revoking a computer also refuses new streams for that person or computer for 30 seconds, so a stream that passed its check just before the removal cannot register just after it. nginx adds per-address limits (docs/hosting.md "Push").
+- Limits (lib/live.ts): at most 10 page streams per person (across organizations) and 2 worker streams per computer. A new one past that closes the oldest with `bye {r:'limit'}`; that tab stays on its slow poll until it is back in view, and that worker waits a minute before trying again. Removing a member or revoking a computer also refuses new streams for that person or computer for 30 seconds, so a stream that passed its check just before the removal cannot register just after it. nginx adds per-address limits (docs/ops/hosting.md "Push").
 - If the read that works out who should get a hint fails, the write still goes through and only the writer gets the hint (never the whole organization).
 - Each stream lives at most 30 minutes (`STREAM_TTL_MS`). The server then sends `bye {r:'ttl'}` and the client reconnects at once, so the session, membership and key are checked again at least every 30 minutes.
 - Removing a member closes their page and worker streams at once (`closeFor` in `releaseAccess`), and revoking a computer closes its stream (`closeDevice`). A reconnect is then refused.
@@ -297,7 +297,7 @@ The cost: writes that bypass the door (raw `// scope-ok` lines, Better Auth's co
 - an open Claude page shows a teammate's new item without a reload;
 - the real worker client gets a stop job pushed (about 0.3 to 0.4 s from the click);
 - removing a member closes their page and worker streams, and a reconnect is refused;
-- the request counts (docs/cpu.md).
+- the request counts (docs/ops/cpu.md).
 
 The worker's own tests cover the stream client, change-only status and a simulated hour of the loop.
 
@@ -365,7 +365,7 @@ Tests: `tests/e2e/sharing.mjs` section 6 (the UI end to end, the confirm, the ba
 - Sign-in with a wrong password and password reset answer the same for a known and an unknown email (checked, no exception).
 
 **Found and fixed** by the first run:
-- Server actions and POST routes read the session through Better Auth's cookie cache. So a copy of a cookie kept after sign-out (or a revoked session) could still write for up to 2 minutes. They now read the session from the database (`callerFromHeaders` in lib/caller.ts). That covers every request Next may run as an action: a fetch call (`Next-Action` header) and a form post with no header (a `multipart/form-data` or urlencoded body naming the action in `$ACTION_REF_n`/`$ACTION_ID_n` fields; the security review found this second way). Pages and GET routes still use the cache (docs/auth.md).
+- Server actions and POST routes read the session through Better Auth's cookie cache. So a copy of a cookie kept after sign-out (or a revoked session) could still write for up to 2 minutes. They now read the session from the database (`callerFromHeaders` in lib/caller.ts). That covers every request Next may run as an action: a fetch call (`Next-Action` header) and a form post with no header (a `multipart/form-data` or urlencoded body naming the action in `$ACTION_REF_n`/`$ACTION_ID_n` fields; the security review found this second way). Pages and GET routes still use the cache (docs/ops/auth.md).
 - Cancelling another organization's invitation answered "Member not found" (Better Auth) instead of "Invitation not found". So an owner of one organization could tell that an invitation id of another was real. `cancelInvitation` now checks first that the invitation is in the caller's organization. `/api/auth/organization/cancel-invitation` is no longer served: nothing used it, and Settings › Members uses the server action.
 
 ## Audit summary (2026-10-19)

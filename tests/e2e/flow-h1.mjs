@@ -1,4 +1,4 @@
-// Flow H1 (docs/flows/step-1.md "Tests"): an idea dropped from a chat (a note, a task, a Next line) reaches the next
+// Flow H1 (docs/archive/step-1.md "Tests"): an idea dropped from a chat (a note, a task, a Next line) reaches the next
 // session on the project. The present session's next tool answer carries `forYou` once, with ids and counts only, never
 // body text; a new session's start_work lists the items; the session's own writes are not told back to it; the save
 // nudge after 10 writes; a session that passes no id is found by its key; the cursor stays inside the person's own sessions.

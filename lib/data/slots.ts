@@ -3,7 +3,7 @@ import type { SlotDoc } from '../db';
 import { scoped, type Scope } from '../scope';
 import type { Ident } from './presence';
 
-// Heavy slots (docs/flows/plan-1-3.md slice 7): a builds-and-tests session asks for a heavy slot on its machine before
+// Heavy slots (docs/archive/plan-1-3.md slice 7): a builds-and-tests session asks for a heavy slot on its machine before
 // it starts a build, a test run or a browser, so a computer is never asked to run more at once than it can bear. At most
 // `cap` (default 2) holders per machine, counted across every session on it. A hold is a 30-minute lease: a session that
 // disappears frees its slot by itself; one still working renews it by asking again.

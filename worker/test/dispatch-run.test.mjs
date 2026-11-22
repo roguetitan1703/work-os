@@ -1,4 +1,4 @@
-// Run keys, the worker side (docs/dispatcher.md "Run keys"): a dispatched run never gets its person's own Work OS credential. It runs
+// Run keys, the worker side (docs/ops/dispatcher.md "Run keys"): a dispatched run never gets its person's own Work OS credential. It runs
 // with a strict MCP config holding only its own run key, a settings file that blanks WORK_OS_KEY in the settings env block, and an
 // environment with the key removed; both files go when claude ends, and a dispatched run without a run key is never started.
 // Keys here are generated test values; nothing prints one.

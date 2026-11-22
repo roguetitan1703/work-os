@@ -1,4 +1,4 @@
-// Signed worker releases (docs/launcher.md "Self-update"). Node built-ins only: the worker (update.mjs), the server
+// Signed worker releases (docs/ops/launcher.md "Self-update"). Node built-ins only: the worker (update.mjs), the server
 // (lib/worker-bundle.ts) and scripts/worker-signing-key.mjs share it.
 import crypto from 'node:crypto';
 

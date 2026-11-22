@@ -12,7 +12,7 @@ import { placeOf } from './projects';
 import { addJob, createStartJob, deviceMap, stopSession, type DeviceScope } from './launcher';
 import { createCloneJob, turboAvailable, turboPlanFor } from './turbo';
 
-// Task dispatcher, PC version (docs/dispatcher.md). A person gives a task to Claude (UI only); when one of
+// Task dispatcher, PC version (docs/ops/dispatcher.md). A person gives a task to Claude (UI only); when one of
 // their computers has room, its worker's jobs poll claims the oldest task they marked and starts a Claude Code
 // session on it. The task is the finish signal: Done = finished, Blocked or a dead session = stopped.
 // Nothing here is reachable from MCP, Discord or apply_changes: those write tasks through
@@ -112,7 +112,7 @@ export async function listNotePicks(s: Scope): Promise<NotePick[]> {
 
 // ── The first message ───────────────────────────────────────────────────────
 
-/** Fixed template: the task ref and the boilerplate note id only. No title or description, ever (docs/dispatcher.md rule 2). */
+/** Fixed template: the task ref and the boilerplate note id only. No title or description, ever (docs/ops/dispatcher.md rule 2). */
 export function buildPrompt(ref: number, noteId: string): string {
   const read = noteId ? `1. Read the Work OS note with id ${noteId} (read_note) and follow it.` : '1. Use your normal Claude Code rules for this project.';
   const text = [
@@ -579,7 +579,7 @@ export async function giveToClaude(scope: DeviceScope, key: string, folderKey?: 
 }
 
 /**
- * The first message of "Open in Claude Code" (docs/connect.md): a fixed template like buildPrompt, ref only, never the task's
+ * The first message of "Open in Claude Code" (docs/ops/connect.md): a fixed template like buildPrompt, ref only, never the task's
  * title or text (that is data, possibly from someone else, and the prompt lands in a terminal on a PC). The person drives the
  * session; Claude reads the task with the Work OS MCP.
  */

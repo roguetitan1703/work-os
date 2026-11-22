@@ -4,7 +4,7 @@ import { createAuthClient } from 'better-auth/react';
 import { organizationClient, twoFactorClient } from 'better-auth/client/plugins';
 import { passkeyClient } from '@better-auth/passkey/client';
 
-// Browser side of Better Auth (docs/auth.md): sign-in, two-factor, passkeys, password reset and change. It talks to
+// Browser side of Better Auth (docs/ops/auth.md): sign-in, two-factor, passkeys, password reset and change. It talks to
 // /api/auth/* on this site (app/api/auth/[...all]/route.ts serves an allowlist of endpoints).
 export const authClient = createAuthClient({
   basePath: '/api/auth',

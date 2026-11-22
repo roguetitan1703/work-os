@@ -7,7 +7,7 @@ import type { Caller } from './caller';
 import { getDb } from './db';
 import { FRESH_MINUTES, REAUTH_MESSAGE } from './reauth-shared';
 
-// "Fresh session" (docs/auth.md): adding a passkey, creating or rotating an API key and adding a computer need a
+// "Fresh session" (docs/ops/auth.md): adding a passkey, creating or rotating an API key and adding a computer need a
 // sign-in, or a password re-entry, in the last FRESH_MINUTES. A stolen session cookie alone can't mint lasting
 // credentials. The re-entry time is stored on Better Auth's session document (`reauthAt`), read from the database
 // (never the cookie cache).

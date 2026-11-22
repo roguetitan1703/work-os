@@ -80,7 +80,7 @@ So Work OS:
 
 The box is already **swap-heavy**: the memory Work OS takes comes partly out of what the other apps now hold in RAM.
 Expect it to get slower for everyone, not to fail; watch `free -m` and `systemctl status work-os` the first week,
-and talk to Om before Work OS takes more (docs/cpu.md).
+and talk to Om before Work OS takes more (docs/ops/cpu.md).
 
 **First, the pre-flight** (read-only; changes nothing, prints no secrets):
 
@@ -108,7 +108,7 @@ What to look for:
 - One Caddy site file, `/etc/caddy/sites/work-os.caddy` (the site `work.delpat.in` only), and one `import` line in
   the existing Caddyfile. No global options, no other site touched; Caddy is reloaded, never restarted.
 - One app process on 127.0.0.1:3100, never opened in the security group.
-- The box's CPU credits and memory, which every app on it shares (docs/cpu.md "Graviton, shared").
+- The box's CPU credits and memory, which every app on it shares (docs/ops/cpu.md "Graviton, shared").
 - **No ufw on a shared box.** `ufw enable` blocks every port not allowed first, including the other apps' ports. The
   security group is the firewall: inbound 443 and 80 from anywhere (Caddy needs 80 for certificates and redirects),
   22 from Delpat's office/VPN addresses only. If ufw is already on (the pre-flight says), Work OS needs nothing new
@@ -119,7 +119,7 @@ apps, not for builds, made with `fallocate`, `mkswap`, `swapon` and a line in `/
 `vm.swappiness` on a shared box without its owners.)
 
 **CPU credits:** standard mode (decided; unlimited bills the burst). A t4g.small earns the same as a t3.small (20% of
-each vCPU), and the other apps spend from the same balance (docs/cpu.md).
+each vCPU), and the other apps spend from the same balance (docs/ops/cpu.md).
 
 **DNS:** `work.delpat.in A <the Elastic IP>`.
 
@@ -250,7 +250,7 @@ conflicts, or another site already serves `work.delpat.in`. Caddy gets the certi
 What the site does, and why (comments in the file say the same):
 - `X-Real-IP` set to the address Caddy saw, replacing what the client sent; Caddy also replaces `X-Forwarded-For`
   (it trusts no proxy in front of it) and sets `X-Forwarded-Proto`. The app reads them only with `TRUST_PROXY=1`
-  (sign-in rate limits per IP, `docs/auth.md`). The client's `x-workos-client-ip` (the header Better Auth reads) is
+  (sign-in rate limits per IP, `docs/ops/auth.md`). The client's `x-workos-client-ip` (the header Better Auth reads) is
   dropped.
 - `flush_interval -1`: pages stream (Suspense), MCP answers with server-sent events, and the push streams send an
   event at a time (section 12). No `encode`: Next compresses pages itself, and the streams must not be held back.
@@ -295,7 +295,7 @@ it still needs a session), but if that matters, install the opt-in file, or make
 
 What the nginx site does, and why:What the site does, and why:
 - `X-Real-IP $remote_addr` and `X-Forwarded-For $remote_addr`, both overwritten, so a client cannot pick its own
-  address. The app reads them only with `TRUST_PROXY=1` (sign-in rate limits per IP, `docs/auth.md`).
+  address. The app reads them only with `TRUST_PROXY=1` (sign-in rate limits per IP, `docs/ops/auth.md`).
 - WebSocket upgrade headers on every path (the map is `$work_os_connection_upgrade`: the usual `$connection_upgrade`
   name is often defined by another site already, and nginx refuses a variable defined twice).
 - `proxy_buffering off`: pages stream (Suspense) and MCP answers with server-sent events (Next's self-hosting guide).
@@ -330,7 +330,7 @@ On stop it sends SIGTERM and waits 30 s, so in-flight requests and `after()` wor
 
 **Memory.** The box has 1.8 GiB for every app and already leans on swap, so the unit caps Work OS:
 - heap 288 MB (`NODE_OPTIONS=--max-old-space-size=288`): the app peaked at 216 MB of heap and 356 MB RSS with 20
-  people (docs/cpu.md), measured with a 1024 MB cap; 288 is that peak plus a third;
+  people (docs/ops/cpu.md), measured with a 1024 MB cap; 288 is that peak plus a third;
 - `MemoryHigh=380M`: past it the kernel takes memory back from Work OS first (it slows down, it is not killed);
 - `MemoryMax=480M`: past it the app is killed and systemd starts it again (`Restart=always`); people see a few
   seconds of errors and their pages reconnect.
@@ -490,7 +490,7 @@ Step 1 signs the worker release with the key kept under DPAPI for Om's Windows a
 `npm ci` and `next build` as root) never sees the key. It prints the worker files changed since the last signed
 release, sets the release version from the commit's time (`YYYYMMDD.HHMMSS` UTC) and writes
 `worker-signature-<commit12>.json`; step 2 checks that file against the commit's worker and puts it into the tarball as
-`.next/worker-signature.json`, so downloaded workers update themselves to it (docs/launcher.md "Self-update"). Without
+`.next/worker-signature.json`, so downloaded workers update themselves to it (docs/ops/launcher.md "Self-update"). Without
 it the build prints a warning and is unsigned.
 GitHub Actions builds never hold the key: for them, sign with `node scripts/worker-signing-key.mjs sign` and commit
 `worker/bundle/signature.json` before the merge to master.
@@ -869,7 +869,7 @@ encrypted; keep the private key apart from the bucket's credentials.
 
 ## 12. Push
 
-Pages and workers hold one long-lived HTTP response each: Server-Sent Events, not WebSockets (docs/multi-user.md
+Pages and workers hold one long-lived HTTP response each: Server-Sent Events, not WebSockets (docs/ops/multi-user.md
 "As built: phase 5 push"). So there is **no custom server and no `Upgrade` to forward** (the site's upgrade map is not needed for push): `next start` serves the two
 streams from ordinary route handlers.
 

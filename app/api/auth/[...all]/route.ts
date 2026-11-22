@@ -47,7 +47,7 @@ const ALLOWED = new Set([
   '/organization/list-members',
   '/organization/get-active-member',
   '/organization/get-active-member-role',
-  // OAuth sign-in for MCP clients (lib/auth-server.ts oauthProvider; docs/auth.md). Not served: introspect, userinfo, end-session,
+  // OAuth sign-in for MCP clients (lib/auth-server.ts oauthProvider; docs/ops/auth.md). Not served: introspect, userinfo, end-session,
   // client create/update/delete, consent management, resource admin, continue: apps register only through /oauth2/register (trimmed below).
   '/oauth2/authorize',
   '/oauth2/consent',

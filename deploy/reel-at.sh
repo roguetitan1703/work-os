@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Instagram reel scheduling for Work OS: one timer per post, no polling. Installed root-owned as
-# /usr/local/sbin/work-os-reel-at (docs/hosting.md "Instagram reels"); run with sudo:
+# /usr/local/sbin/work-os-reel-at (docs/ops/hosting.md "Instagram reels"); run with sudo:
 #
 #   sudo work-os-reel-at <post-id> <container-id> "YYYY-MM-DD HH:MM"   schedule (time in IST); prints the unit name
 #   sudo work-os-reel-at --list                                          scheduled posts

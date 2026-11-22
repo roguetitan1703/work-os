@@ -21,7 +21,7 @@ const ROLE_HINT: Record<string, string> = {
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 
 /**
- * Settings › Members (docs/multi-user.md phase 4): who is in the organization. Owners and admins invite by email, see and
+ * Settings › Members (docs/ops/multi-user.md phase 4): who is in the organization. Owners and admins invite by email, see and
  * cancel pending invitations, change roles and remove members. Only an owner makes, changes or removes an owner; the
  * server checks every rule again (lib/members.ts).
  */

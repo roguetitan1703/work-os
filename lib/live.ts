@@ -1,7 +1,7 @@
 import 'server-only';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-// Push (docs/multi-user.md "As built: phase 5 push"). Open pages and workers hold one Server-Sent Events stream each
+// Push (docs/ops/multi-user.md "As built: phase 5 push"). Open pages and workers hold one Server-Sent Events stream each
 // (app/api/stream, app/api/worker/stream). This is the in-process hub behind them:
 //
 //   hint(orgId, audience, topic)   "refresh <topic>" to the pages of the people in audience. Called by the data door

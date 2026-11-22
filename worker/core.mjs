@@ -295,7 +295,7 @@ export function createCore(deps) {
     if (deps.hooksStatus) { try { const h = deps.hooksStatus(); if (h) body.worker.hooks = h; } catch (e) { log('hooks status failed: ' + errMsg(e)); } }
     // Self-update (update.mjs): that it is on, the last one installed and the last refusal or failure. Repo runs send none.
     if (deps.selfUpdate) { try { const u = deps.selfUpdate(); if (u) body.worker.selfUpdate = u; } catch (e) { log('update status failed: ' + errMsg(e)); } }
-    // Counts only (docs/launcher.md "Activity counts"); a failed count never blocks the heartbeat.
+    // Counts only (docs/ops/launcher.md "Activity counts"); a failed count never blocks the heartbeat.
     if (deps.activity) {
       try {
         const ids = Object.keys(state.sessions).filter((k) => state.sessions[k].state === 'running');

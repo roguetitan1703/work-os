@@ -8,7 +8,7 @@ import { requestContext, runWithRequestContext, setRenderTz } from './request-co
 import { timezoneOf } from './profile';
 import type { Scope } from './scope';
 
-// Who is calling (docs/auth.md). Every server action, API route and page that needs to know asks here; proxy.ts only
+// Who is calling (docs/ops/auth.md). Every server action, API route and page that needs to know asks here; proxy.ts only
 // lets signed-in requests through, and each handler checks again with these helpers.
 //
 //   getCaller()              the signed-in user of this request (session cookie), or null
@@ -17,7 +17,7 @@ import type { Scope } from './scope';
 //   verifyKey(token)         an API key alone (the MCP route)
 //
 // orgId is the session's active organization (set at sign-in to the user's oldest membership). Every data call takes
-// the caller's scope ({ userId, orgId }, requireScope) and reads through lib/scope.ts (docs/multi-user.md "One door").
+// the caller's scope ({ userId, orgId }, requireScope) and reads through lib/scope.ts (docs/ops/multi-user.md "One door").
 
 export type Agent = 'claude' | 'claude-code';
 export type Caller = {
@@ -105,7 +105,7 @@ function mayBeAction(h: Headers): boolean {
 /**
  * The signed-in caller for these request headers, or null. Page renders and other reads trust Better Auth's signed
  * cookie cache (up to COOKIE_CACHE_SECONDS old); a possible server action, or `fresh`, reads the session from the
- * database, so a session that signed out or was revoked can no longer change anything (docs/auth.md).
+ * database, so a session that signed out or was revoked can no longer change anything (docs/ops/auth.md).
  */
 export async function callerFromHeaders(h: Headers, fresh = mayBeAction(h)): Promise<Caller | null> {
   const auth = await getAuth();

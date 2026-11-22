@@ -1,4 +1,4 @@
-// OAuth sign-in for MCP clients (docs/auth.md "Connecting Claude with OAuth"): the MCP authorization flow end to end with a
+// OAuth sign-in for MCP clients (docs/ops/auth.md "Connecting Claude with OAuth"): the MCP authorization flow end to end with a
 // scripted client, as claude.ai and Claude Code run it. Discovery (401 + WWW-Authenticate, protected-resource and
 // authorization-server metadata), dynamic client registration (and what it refuses), authorization code + PKCE (S256 only)
 // through the real sign-in and consent pages in a browser, token exchange, tools/list and scoped tool calls with the token,

@@ -4,7 +4,7 @@
 agent work the same way through Work OS. Its parts ship in releases (R1 = the 18-19 Nov batch).
 
 This doc replaces three overlapping designs: session-messaging.md (live sessions and messaging), enforcement.md (rules
-and hooks) and working-system-review.md (Fable's review). Those stay as background; this one is what gets built.
+and hooks) and docs/archive/working-system-review.md (Fable's review). Those stay as background; this one is what gets built.
 Status: draft for a Fable review, then Om.
 
 ## 0. The goal
@@ -258,7 +258,7 @@ Each piece ships through dev, a full test run, then master. Security review befo
 - **Kept current:** a session renames itself when its Now or task changes (in the desktop app, its rename tool; else
   the start_work label). wrap_up and start_work say "your name says X, your work is Y: rename" when they differ.
 
-## 16. Changes after the Fable review (agent-system-review.md, 18 Nov; these override the sections above)
+## 16. Changes after the Fable review (docs/archive/agent-system-review.md, 18 Nov; these override the sections above)
 1. **Done already (a9412e3):** the turn-end check counts real save calls only (the brief's own text fooled it) and asks
    again after later changes, not once per session; no commit when only the version changed; the save_state and
    import_state answers and the server instructions no longer tell agents to write WORK-STATE.md (live after the next
@@ -299,7 +299,7 @@ Each piece ships through dev, a full test run, then master. Security review befo
     the State tools) in parallel. Then A: blocks, propose_order, delivery; B: end_work, declutter, the migration.
     **H2 built (19 Nov):** hook.mjs split into a router and one file per event (`EVENTS` table), atomic install, `hooks check`
     and `hooks repo` (cloud), the worker reports its hooks (Computers shows hooks on / out of date / none), Link them for a
-    computer's matching folders; see docs/HANDOVER.md "Claude Code hooks" and docs/setup-pc.md.
+    computer's matching folders; see docs/HANDOVER.md "Claude Code hooks" and docs/ops/setup-pc.md.
 
 15. **Orders versions and edits (H9, 19 Nov; overrides the app-only rule in sections 5 and 10 and the Orders row in section 3).**
     The holder of a layer, and that person's own Claude (write_note, text and title only, `why` required), may change the
@@ -324,7 +324,7 @@ Each piece ships through dev, a full test run, then master. Security review befo
   dispatcher, a dead worker's task is re-queued once, then goes to Om as a Need. **Built (H15, 19 Nov):** the server marks a dispatched
   session (this PC's own worker session row), its hooks refuse Orders edits and shell calls to the Work OS key and API, the claim cap is one
   transaction behind a per-person lock document, a session that ends on its own is put back once and then an app-only Need goes to the
-  giver (Give to Claude again / Take back), and the prompt ends with end_work; see docs/dispatcher.md "As built (H15)". The cloud
+  giver (Give to Claude again / Take back), and the prompt ends with end_work; see docs/ops/dispatcher.md "As built (H15)". The cloud
   dispatcher (#267, #268) is its own part after H16.
 - **Order:** after builder A's session tokens and per-session ids and builder B's end_work, because the dispatcher
   needs both. #259's subtasks 2 (Needs) and parts of 4 and 5 are built already; Declutter brings that task up to date.

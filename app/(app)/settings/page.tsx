@@ -169,7 +169,7 @@ async function NotificationsPanel({ caller, discord }: { caller: Caller; discord
   );
 }
 
-/** The connections table, then the calendar link (docs/calendar.md). */
+/** The connections table, then the calendar link (docs/ops/calendar.md). */
 async function ConnectionsPanel({ caller }: { caller: Caller }) {
   const feed = await feedStatus(caller).catch(() => ({ on: false }));
   return (

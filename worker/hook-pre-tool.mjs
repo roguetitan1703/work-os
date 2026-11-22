@@ -177,7 +177,7 @@ export function ordersDeny(input, env = process.env) {
  *   - a PowerShell encoded command (any -e... prefix of EncodedCommand, also with an en or em dash or a slash, only on a powershell or
  *     pwsh command line), and base64 -d piped into a shell or iex;
  *   - a network tool (curl, wget, iwr, irm, ...) aimed at an /api/ path of a Work OS server named in the command.
- * The Read, Grep and Glob tools are refused on the same files. KNOWN LIMITS (docs/dispatcher.md): a host held in a variable
+ * The Read, Grep and Glob tools are refused on the same files. KNOWN LIMITS (docs/ops/dispatcher.md): a host held in a variable
  * ($WORK_OS_URL), URL-encoded paths, and any script the run writes and runs. On a PC (same OS user, the key on disk) the bypass can be
  * made deliberate, not impossible; a per-claim restricted key (B2) belongs to the cloud part. Fails open on any error.
  */

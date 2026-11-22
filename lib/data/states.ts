@@ -15,7 +15,7 @@ import { memberNames } from '../people';
 import { completeTask, createTask, getTask, logChange } from './tasks';
 import type { Priority } from '../types';
 
-// The project's State (docs/flows/step-1.md section 1): Now (one goal), Next (ordered), Later (one line each, with what it
+// The project's State (docs/archive/step-1.md section 1): Now (one goal), Next (ordered), Later (one line each, with what it
 // waits on), Decisions (append-only), Where (per machine) and a version bumped on every write. One document per project
 // (`_id` = the project id) stamped with the project's placement, so the door shows it to the project's readers only
 // (and lib/data/projects.ts setProjectPlacement moves it with the project).
@@ -543,7 +543,8 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
           const replaced = h.text.replace(op.find, () => op.new).trim();
           if (h.where === 'Now') {
             if (!replaced) throw new InputError('Now cannot be removed: replace it with set_now.');
-            if (replaced.length > LIMITS.now) throw new InputError(`Now would be ${replaced.length} characters (max ${LIMITS.now}).`);
+            // One text for agents and people: no app control sends edit_line (plan 22 Nov).
+            if (replaced.length > LIMITS.now) throw new InputError(`Now would be ${replaced.length} characters (max ${LIMITS.now}). To rewrite Now, use set_now with base_version. Nothing was written.`);
             // An edit of Now by a session overwrites the goal like set_now: the same base_version rule, the same conflict answer. A
             // person in the app is never refused.
             if (!person && o.baseVersion === undefined) throw new InputError('edit_line on Now needs base_version: the version of the State you read (start_work, get_state and every save_state answer carry it). Nothing was written.');
@@ -554,7 +555,14 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
             feed.push({ type: 'state_now', text: replaced });
             break;
           }
-          if (replaced.length > LIMITS.line) throw new InputError(`The line would be ${replaced.length} characters (max ${LIMITS.line}).`);
+          // One text for agents and people: no app control sends edit_line (plan 22 Nov).
+          if (replaced.length > LIMITS.line) {
+            throw new InputError(
+              op.find.length < h.text.length
+                ? `The line would be ${replaced.length} characters (max ${LIMITS.line}). edit_line replaces only the text in find (${op.find.length} of the line's ${h.text.length} characters) and keeps the rest. To rewrite the whole line, put its whole current text in find. Nothing was written.`
+                : `The line would be ${replaced.length} characters (max ${LIMITS.line}). Nothing was written.`,
+            );
+          }
           const heldByOther = await checkLine(h.line!, h.where as 'Next' | 'Later' | 'Parked');
           const list = h.where === 'Next' ? next : later;
           if (h.where === 'Next') nextEdited = true;

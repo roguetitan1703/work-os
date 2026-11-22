@@ -6,7 +6,7 @@ import { InputError, NotFoundError } from './errors';
 import { cloneSpec } from './code-locations';
 import { addJob, deviceMap, linkFolder, startSession, type FolderView } from './launcher';
 
-// Turbo mode (docs/launcher.md "Turbo mode"): Start Claude on a project whose repo is not on the person's computer yet makes the
+// Turbo mode (docs/ops/launcher.md "Turbo mode"): Start Claude on a project whose repo is not on the person's computer yet makes the
 // computer's worker clone it (folder, clone, link, trust) and then start Claude there. The repo comes from the project's code
 // locations (Info › Code). This file decides who may do it and what to send; the git work is worker/clone.mjs.
 // Only the person's own computers (their devices, by DeviceScope): a teammate cannot start a clone on someone else's PC, exactly

@@ -23,7 +23,7 @@ const iconBtn = 'w-11 h-11 rounded-full flex items-center justify-center text-mu
 
 const online = (d: DeviceInfo) => !!d.lastSeenAt && Date.now() - Date.parse(d.lastSeenAt) < 2 * 60_000;
 
-/** Claude › Set up › step 2: machines running the session-launcher worker (docs/launcher.md). `initial` is the server's list; it follows each refresh. */
+/** Claude › Set up › step 2: machines running the session-launcher worker (docs/ops/launcher.md). `initial` is the server's list; it follows each refresh. */
 export function Computers({ initial }: { initial?: DeviceInfo[] }) {
   const phone = usePhone();
   const [devices, setDevices] = useState<DeviceInfo[] | null>(initial ?? null);

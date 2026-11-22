@@ -1,4 +1,4 @@
-// Leak audit (docs/multi-user.md "Leak audit"): every entry point of the app, read from the code (entry-points.mjs),
+// Leak audit (docs/ops/multi-user.md "Leak audit"): every entry point of the app, read from the code (entry-points.mjs),
 // called as each persona, with canaries planted in every kind of private and other-organization document.
 //
 // Personas: A owns the first organization (control: what A can do must work), T is a member there (a teammate, aimed
@@ -272,7 +272,7 @@ function writers(col, d) {
   if (col === 'user') return [pOf(d._id)];
   if (['session', 'account', 'twoFactor', 'passkey'].includes(col)) return [pOf(d.userId)];
   if (col === 'apikey') return [pOf(d.referenceId ?? d.userId)];
-  // OAuth sign-in (docs/auth.md): registration is open to anyone (an app client and its resource link, the resource row is made on demand);
+  // OAuth sign-in (docs/ops/auth.md): registration is open to anyone (an app client and its resource link, the resource row is made on demand);
   // an approval and its tokens belong to the person who gave them.
   if (['oauthClient', 'oauthClientResource', 'oauthResource'].includes(col)) return ['A', 'T', 'X', 'R', 'N'];
   if (['oauthConsent', 'oauthAccessToken', 'oauthRefreshToken'].includes(col)) return [pOf(d.userId)];
@@ -312,6 +312,7 @@ function diff(persona, before, after, allowed = () => false) {
   return bad;
 }
 
+const HINT_TAIL = /\n\nLooks hard\? [^\n]*$/; // the feedback hint (lib/mcp/refusals.ts) depends on how many refusals came before, not on the target
 // ── normalising answers for the "exists but not yours" check ────────────────
 function norm(text, real, fake) {
   let t = String(text);
@@ -428,7 +429,7 @@ try {
   P.archRef = await mkTask(A.chat, { title: can('pvarch', ['A']), project: P.projectName });
   P.giveRef = await mkTask(A.chat, { title: can('pvgive', ['A']), project: P.projectName });
   S.taskRef = await mkTask(A.chat, { title: can('shtask', ['A', 'T']), project: S.projectName, description: can('shtaskdesc', ['A', 'T']) });
-  // Subtasks (docs/subtasks.md): one under the private task, one under the shared one; each copies its parent's title.
+  // Subtasks (docs/archive/subtasks.md): one under the private task, one under the shared one; each copies its parent's title.
   P.subRef = await mkTask(A.chat, { title: can('pvsubtask', ['A']), parent: P.taskRef });
   S.subRef = await mkTask(A.chat, { title: can('shsubtask', ['A', 'T']), parent: S.taskRef });
   S.trashRef = await mkTask(A.chat, { title: can('shtrash', ['A', 'T']), project: S.projectName });
@@ -484,7 +485,7 @@ try {
   P.item = (await rawDb.collection('claudeItems').findOne({ orgId: A.orgId, projectId: P.project }));
   S.item = (await rawDb.collection('claudeItems').findOne({ orgId: A.orgId, projectId: S.project, small: { $ne: true } }));
   P.itemRef = `C${P.item.ref}`; S.itemRef = `C${S.item.ref}`;
-  // Slice 1 (docs/flows/step-1.md): a State, a present session and an Orders page on the private and on the shared project
+  // Slice 1 (docs/archive/step-1.md): a State, a present session and an Orders page on the private and on the shared project
   for (const [o, tg, allow] of [[P, 'pv', ['A']], [S, 'sh', ['A', 'T']]]) {
     o.stateNext = can(`${tg}statenext`, allow);
     // Started first: Now is set by a session Work OS knows (Lanes)
@@ -554,7 +555,7 @@ try {
   const memberDoc = await rawDb.collection('member').findOne({ organizationId: { $in: [A.orgId, new ObjectId(A.orgId)] } });
   const uid = id => (memberDoc.userId instanceof ObjectId ? new ObjectId(id) : id);
   A.passkey = new ObjectId();
-  // An app the owner approved (OAuth, docs/auth.md): the others' Revoke must not reach it.
+  // An app the owner approved (OAuth, docs/ops/auth.md): the others' Revoke must not reach it.
   A.oauthClientId = 'lkqoauthclient' + hex(6);
   await rawDb.collection('oauthClient').insertOne({ clientId: A.oauthClientId, name: can('aoauthapp', ['A']), redirectUris: ['https://claude.ai/api/mcp/auth_callback'], disabled: false, scopes: ['workos', 'offline_access'], grantTypes: ['authorization_code', 'refresh_token'], tokenEndpointAuthMethod: 'none', createdAt: now, updatedAt: now });
   await rawDb.collection('oauthConsent').insertOne({ clientId: A.oauthClientId, userId: A.userId, referenceId: A.orgId, scopes: ['workos'], resources: [], createdAt: now, updatedAt: now });
@@ -689,14 +690,14 @@ try {
   const refusals = []; // every aimed call that was refused: { kind, tag, said }
   const tag = (who, pr) => `${who} ${pr.id}${pr.label ? ` (${pr.label})` : ''}`;
   // What an answer says, for the "exists but not yours" comparison: a page is found, not found, an error or a redirect;
-  // an action is its result (not the page it re-renders); anything else is its text. Ids the probe sent are taken out.
+  // an action is its result (not the page it re-renders); anything else is its text. Ids the probe sent are taken out, and the feedback hint is taken off.
   function shape(pr, res, tgt) {
     const keysOf = pr.aimKeys ?? [];
     const n = t => norm(t, Object.fromEntries(keysOf.map(k => [k, tgt[k]])), Object.fromEntries(keysOf.map(k => [k, FAKE[k]])));
     if (pr.shape) return pr.shape(res);
     if (pr.kind === 'page') return `${res.status} ${n(pageState(res))}`;
     if (pr.kind === 'action' && !res.missing && res.value !== undefined) return `${res.status} ${res.error ? 'error' : ''} ${res.redirect ? n(res.redirect) : ''} ${n(JSON.stringify(res.value))}`;
-    return `${res.status} ${n(res.redirect ?? res.location ?? '')} ${n(res.text)}`;
+    return `${res.status} ${n(res.redirect ?? res.location ?? '')} ${n(String(res.text).replace(HINT_TAIL, ''))}`;
   }
   // Making or moving something into a project by a name the caller cannot see makes the caller a project of that name
   // (by design, and alike for a real and a made-up name). Those projects, and what went into them, are removed after
@@ -1317,7 +1318,7 @@ await finish();
 //   only     the personas that make this call (a call that would break the persona's later probes, such as signing out)
 //   mayWork  (who) => true when it may work for that persona (their own server, their own organization)
 //   ownAccount  works for R too: R still has an account, only the membership is gone
-//   existenceOk  the reason a "not yours" vs "does not exist" difference is accepted (docs/multi-user.md "Leak audit")
+//   existenceOk  the reason a "not yours" vs "does not exist" difference is accepted (docs/ops/multi-user.md "Leak audit")
 //   echo     () => strings the call sends that may come back (taken out before the canary scan)
 //   shape    (res) => what the existence check compares, when the whole answer is not the point
 //   refusal  aimed with control false: its refusal must read as ACCESS or match this regex (the entry point's own
@@ -1706,7 +1707,7 @@ function AUDIT() {
   }
   add('route GET /worker/work-os-worker.mjs', route('GET', '/worker/work-os-worker.mjs', { public: true }));
   add('route GET /worker/latest.json', route('GET', '/worker/latest.json', { public: true }));
-  // The calendar link (docs/calendar.md): the token is the only credential; anything but a live token is the same bare 404, for everyone.
+  // The calendar link (docs/ops/calendar.md): the token is the only credential; anything but a live token is the same bare 404, for everyone.
   add('route GET /api/calendar/[file]', { kind: 'route', public: true, ok: r => r.status === 404, call: () => req('GET', '/api/calendar/' + 'lkq'.repeat(14) + 'a.ics'), label: 'a token that is not a link', controlOk: r => r.status === 404 });
   const CAL = 'app/(app)/settings/calendar-actions.ts#';
   for (const n of ['createCalendarLinkAction', 'rotateCalendarLinkAction', 'revokeCalendarLinkAction', 'getCalendarLinkAction']) add(`action ${CAL}${n}`, act(CAL + n, [])); // each acts on the caller's own link only

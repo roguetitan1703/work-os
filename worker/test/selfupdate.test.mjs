@@ -1,4 +1,4 @@
-// Self-update (worker/update.mjs, docs/launcher.md "Self-update"): only a newer release signed with a key in the running
+// Self-update (worker/update.mjs, docs/ops/launcher.md "Self-update"): only a newer release signed with a key in the running
 // worker's own list is installed; everything else leaves the old worker running and says why.
 import test from 'node:test';
 import assert from 'node:assert/strict';

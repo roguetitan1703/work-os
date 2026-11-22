@@ -3,7 +3,7 @@ import { getCookieCache } from 'better-auth/cookies';
 import { COOKIE_PREFIX, authSecret, bearerToken, secureCookies } from '@/lib/auth';
 import { recordRequest, requestCaller, requestKind, routePattern } from '@/lib/usage';
 
-// Guards every page, server action and API route (docs/auth.md). Sign-in is Better Auth (lib/auth-server.ts).
+// Guards every page, server action and API route (docs/ops/auth.md). Sign-in is Better Auth (lib/auth-server.ts).
 //
 // Cheap on purpose: a signed-in browser carries a signed copy of its session (Better Auth's cookie cache,
 // COOKIE_CACHE_SECONDS); while it is fresh the proxy checks only its signature, with no database read. When it has
@@ -21,7 +21,7 @@ import { recordRequest, requestCaller, requestKind, routePattern } from '@/lib/u
 // Pages get a Content-Security-Policy with a fresh nonce (pageCsp below): Next puts the nonce on its own inline
 // scripts, and the root layout hands it to next-themes. The other security headers are static (next.config.ts).
 //
-// Every request that reaches the proxy is also counted for Settings › Usage (lib/usage.ts, docs/usage-log.md),
+// Every request that reaches the proxy is also counted for Settings › Usage (lib/usage.ts, docs/ops/usage-log.md),
 // after the response (event.waitUntil); counting never changes or delays the answer.
 
 // Paths that skip the session check and check their own credentials (same prefix test the old matcher made).

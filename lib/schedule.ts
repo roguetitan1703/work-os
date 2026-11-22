@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { clockInTz } from './dates';
 import { isHex } from './modes';
 
-// A person's week (docs/multi-user.md phase 3): time blocks Monday to Friday (Saturday and Sunday are flex days). Stored
+// A person's week (docs/ops/multi-user.md phase 3): time blocks Monday to Friday (Saturday and Sunday are flex days). Stored
 // per person in `schedule:<userId>` (lib/user-schedule.ts); someone who never set one has none: no block bar. The old
 // routine card, weekly review questions and help text are gone (one person's setup); parsing drops them from old documents.
 // Pure (browser and server).

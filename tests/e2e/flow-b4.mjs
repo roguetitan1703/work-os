@@ -1,4 +1,4 @@
-// Flow B4, the personal daily digest (docs/flows/plan-1-3.md slice 2; redesigned 18 Nov: Needs you, Today, Since yesterday, Agents), driven through the cron's ?at=. Seed profile: none.
+// Flow B4, the personal daily digest (docs/archive/plan-1-3.md slice 2; redesigned 18 Nov: Needs you, Today, Since yesterday, Agents), driven through the cron's ?at=. Seed profile: none.
 // People (one organization): ME (default 09:00), Q (quiet hours 09-12), H (digest at 14:00), O (digest switched off) and Dee
 // (quiet until 12, owner of a private project). Profiles are saved before the first cron run (the app caches them a minute).
 import { call, check, cron, db, finish, makeUser, mcpAs, mkKey, ME, rawDb, setProfile } from './lib.mjs';

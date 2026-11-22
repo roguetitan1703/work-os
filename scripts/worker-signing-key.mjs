@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The worker release key (docs/launcher.md "Self-update"). A downloaded worker updates itself only to a release signed
+// The worker release key (docs/ops/launcher.md "Self-update"). A downloaded worker updates itself only to a release signed
 // with a key listed in worker/release-keys.mjs. The private key stays on Om's PC, protected by the system (Windows DPAPI
 // for his user account; the login Keychain on macOS), and is never printed, committed, copied to the server, or readable
 // by a build. Run this with the system's own node (Windows node, not WSL), from a checkout you trust.
@@ -167,7 +167,7 @@ async function main(cmd) {
   const st = keyStore();
   if (['new', 'backup', 'sign'].includes(cmd) && !st) die('no protected key store on this system (Windows DPAPI or the macOS Keychain): sign on Om\'s Windows PC');
   if (cmd === 'new') {
-    if (hasKey(st)) die(`a key already exists in ${describe(st)}; it is not replaced (rotate by adding a second key: see docs/launcher.md)`);
+    if (hasKey(st)) die(`a key already exists in ${describe(st)}; it is not replaced (rotate by adding a second key: see docs/ops/launcher.md)`);
     const { privateKey, publicKey } = crypto.generateKeyPairSync('ed25519');
     storeKey(st, privateKey.export({ format: 'der', type: 'pkcs8' }));
     const pub = publicKeyText(publicKey);

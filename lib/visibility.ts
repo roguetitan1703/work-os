@@ -1,4 +1,4 @@
-// The visibility rule (docs/multi-user.md "Private vs shared"), with no server imports so the pickers can use it too.
+// The visibility rule (docs/ops/multi-user.md "Private vs shared"), with no server imports so the pickers can use it too.
 // A shared document (project, task, note, Claude item, history, trash) is read by everyone in its organization
 // (visibility 'org'), by its owner, and, when its visibility is 'members', by the people in its sharedWith (a project's
 // list, copied onto everything in the project; it always holds the project's owner). readable() and readableFilter()

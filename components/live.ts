@@ -1,6 +1,6 @@
 'use client';
 
-// Push in the browser (docs/multi-user.md "As built: phase 5 push"): one Server-Sent Events stream per tab
+// Push in the browser (docs/ops/multi-user.md "As built: phase 5 push"): one Server-Sent Events stream per tab
 // (/api/stream), open only while something on the page listens (subscribe) and the tab is in view. The server sends
 // "refresh <topic>" hints; listeners fetch the page again the usual way (router.refresh()).
 //

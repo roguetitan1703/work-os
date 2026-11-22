@@ -7,7 +7,7 @@ import { requireCaller, withCaller, type Caller } from '@/lib/caller';
 import { InputError, NotFoundError } from '@/lib/data/errors';
 import { autoEnableDispatcher, getDispatcherSettings, giveToClaude, openTaskInClaudeCode, openTaskInClaudeDesktop, listNotePicks, markOptions, setDispatcherSettings, takeBackFromClaude, type DispatcherSettings, type MarkOptions, type NotePick } from '@/lib/data/dispatcher';
 
-// Task dispatcher actions (docs/dispatcher.md). These are the ONLY way to mark or unmark a task for
+// Task dispatcher actions (docs/ops/dispatcher.md). These are the ONLY way to mark or unmark a task for
 // Claude: they require a signed-in person (lib/caller.ts), and nothing reachable from MCP, Discord or apply_changes calls them.
 
 type R<T> = { ok: true; data: T } | { ok: false; error: string };
