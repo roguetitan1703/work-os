@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 330. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 332. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -99,7 +99,12 @@ Copy of the Work OS state, version 330. WORK-STATE.md is a copy of the State, wr
 - Wake fix (22 Nov): hook-wait.mjs waiter exits ~58 min after the last turn, so an idle session goes 'off' and send_message only queues. Raise the timeout to 24 h (hook-lib.mjs:54-55); hookNote should use the roster's process list (messages.ts:81). — waits on Om's go
 - Bug D (22 Nov): an MCP-key start_work row (machine = hostname 'Victus', no ccSession) sits beside the hook row and shows Working while lastSeen is under 10 min. Fix: the hook sign-in ends or links the same person's no-ccSession key rows for this device and project. Build with bugs A/B (note 287f5b8dc4). — waits on Om's go
 - Feedback nudge never built (seen 22 Nov: 3 save_state refusals in a row, no hint). Designed in docs/flows/session-messaging.md:72-74 ('Looks hard? Tell Work OS with feedback'). Refusals are recorded (lib/mcp/refusals.ts) but only end_work and feedback read them. Fix in the tool() wrapper beside forYouAfter (server.ts ~789): 2-3 same tool:kind refusals -> one line, rate-limited per session. — waits on Om's go; thinker plan
+- Feedback-nudge leftovers: agents get -32602 schema refusals, the namesOtherSession throw, read_note with id, and silently stripped op fields with no hint; look at each (plan 21b9aeb969 step 6).
+- tests/e2e/whats-new.mjs ALL list is stale (lacks the newest entries), so the suite fails 3 checks on dev.
+- check:links fails on dev: AGENTS.md links docs/ARCHITECTURE.md, which the tooling plan (171cad723d, v5 in progress) creates.
+- WIP piece 1 (builder-a e56a607: wake fix + lib/data/session-state.ts) needs a plan for its review fixes (note 4c99f6a229), then rebase off the merged nudge and merge after the tooling work.
+- Cloud sessions get no pre-push hook: have the cloud SessionStart hook set core.hooksPath .githooks (worker change, after the tooling work).
 
 ## Parked
 - 2 lines in Work OS: list_parked, or the project page.
-<!-- work-os-copy sha1:67b33030900cba284717fab9620c5e5403958383 -->
+<!-- work-os-copy sha1:321c0e261dddf822be204b3bbadd5d3b9d83e676 -->
