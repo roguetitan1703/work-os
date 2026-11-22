@@ -52,4 +52,5 @@ next-env.d.ts
 /.claude/settings.local.json
 /work-os/
 /DESIGN_CONTEXT.md
+/.claude/worktrees/
 /work_modes_os_spec.md

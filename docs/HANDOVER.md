@@ -609,11 +609,12 @@ What Work OS is for is in `docs/OVERVIEW.md` (the original 14 Nov product draft 
 - **Data access (phase 2, `docs/ops/multi-user.md` "As built"):** every data function takes the caller's scope `{ userId, orgId }` first. Every query goes through `scoped(scope)` in `lib/scope.ts`.
   - Pages use `requireScope()` (lib/caller.ts); actions use `asCaller(c => …)` or `run((s, me) => …)`.
   - `tests/words-check.mjs` (runs as `prebuild`, or `npm run check:words`) fails on the retired words and a too-long instructions text; see section 3, Words.
+  - `tests/owners-check.mjs` (runs as `prebuild` with `--no-stale`, or `npm run check:owners`) fails when a file answers an owned question outside its owner more often than its baseline, or when `tests/owners.json` is looser than on the merge-base, and prints a `NOTE:` line when a file in `.githooks/gate-files` differs from a base; see `docs/ARCHITECTURE.md`.
   - `tests/scope-check.mjs` (runs as `prebuild`) fails on raw `collections()` / `getDb()` / `.collection()` in lib/data, lib/mcp, lib/alerts, lib/notify, lib/discord, lib/status and app/, unless the line says `// scope-ok: <reason>`.
   - Actors are objects (`lib/actors.ts`). Show them with `<ActorName>` / `<ActorBadge>` (components/actor-badge.tsx), never as raw strings.
 - **Migration from single-owner data:** `node scripts/migrate-ownership.mjs --db <name>` (dry run, counts only) → `--copy-to <scratch db>` to rehearse on a copy → `--apply`. Run it right after deploying phase 2.
 - **Checks before pushing:**
-  - `npx tsc --noEmit -p .`
+  - `npm run check` (scope, words, links, ui, owners, the type check and the unit tests; the pre-push hook in `.githooks/` runs it for dev and master once a clone has set `core.hooksPath`, AGENTS.md "Checks")
   - `npx eslint <touched files>`
   - `npx next build`
 - **A push to `master` goes live by 03:00 IST** (the nightly `work-os-update`; `sudo work-os-update` deploys at once). Work goes to `dev` first; an agent's push to master needs the person's yes in chat (attended) or a release Need (the hook refuses it otherwise). After a deploy check:

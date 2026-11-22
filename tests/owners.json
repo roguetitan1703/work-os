@@ -1,0 +1,274 @@
+{
+  "questions": {
+    "session": {
+      "question": "Which session does this call belong to?",
+      "owners": [
+        "lib/data/presence.ts",
+        "lib/agent-sessions.ts"
+      ],
+      "target": [
+        "lib/session/resolve.ts"
+      ],
+      "scan": [
+        "lib",
+        "app",
+        "worker"
+      ],
+      "how": "Use the session the MCP wrapper put in requestContext().sid, or the hook token, and the keys sessionKey and rowKey (lib/data/presence.ts); never test the key type or build a row id or session key yourself.",
+      "patterns": [
+        {
+          "name": "key-type test",
+          "re": "startsWith\\(\\s*['\"]oauth_['\"]\\s*\\)"
+        },
+        {
+          "name": "key-type query",
+          "re": "['\"]\\^oauth_['\"]"
+        },
+        {
+          "name": "key-type test through isChatRow",
+          "re": "\\bisChatRow\\("
+        },
+        {
+          "name": "hand-built row id",
+          "re": ":[sk]:\\$\\{"
+        },
+        {
+          "name": "hand-built session key",
+          "re": "\\$\\{[\\w.?]*userId\\}:\\$\\{[^}]*\\b(sid|session|key)\\b"
+        }
+      ]
+    },
+    "placement": {
+      "question": "Which project is this session on?",
+      "owners": [
+        "lib/data/presence.ts",
+        "lib/agent-sessions.ts"
+      ],
+      "target": [
+        "lib/session/placement.ts"
+      ],
+      "scan": [
+        "lib",
+        "app"
+      ],
+      "how": "Open and close rows through the owner; never set endedAt or call the close/reopen steps yourself.",
+      "patterns": [
+        {
+          "name": "row closed by hand",
+          "re": "\\bendedAt\\s*:\\s*(new Date|now\\b|at\\b)"
+        },
+        {
+          "name": "placement step called directly",
+          "re": "\\b(closeLeftBehind|reopenLeftBehind|restoreDoing)\\("
+        }
+      ]
+    },
+    "alive": {
+      "question": "Is this session alive, and what state is it in?",
+      "owners": [
+        "lib/data/presence-state.ts"
+      ],
+      "target": [
+        "lib/session/state.ts"
+      ],
+      "scan": [
+        "lib",
+        "app/api"
+      ],
+      "how": "Call presenceState (lib/data/presence-state.ts) and use its answer; never compare activity.state, lastSeen or a minute threshold yourself, make up a state, or pass evidence you did not load.",
+      "patterns": [
+        {
+          "name": "raw activity state",
+          "re": "\\bactivity\\??\\.state\\s*[!=]=="
+        },
+        {
+          "name": "liveness threshold",
+          "re": "\\b[A-Z_]*(WORKING|IDLE|QUIET|GONE|PRESENT|FRESH|STALE)_(MIN|MS)\\b"
+        },
+        {
+          "name": "age from lastSeen",
+          "re": "(Date\\.now\\(\\)|\\bnow\\w*)(\\.getTime\\(\\))?\\s*-\\s*[^;]{0,40}\\blastSeen\\b"
+        },
+        {
+          "name": "daemon evidence made up",
+          "re": "\\bdaemon\\s*:\\s*'running'"
+        },
+        {
+          "name": "state made up by hand",
+          "re": "\\bstate\\s*:\\s*'(on|off|idle|working|waiting)'\\s+as\\s+const\\b"
+        }
+      ]
+    },
+    "holdings": {
+      "question": "What does this session own, and where does it go when it moves or ends?",
+      "owners": [
+        "lib/data/presence.ts",
+        "lib/session-move.ts"
+      ],
+      "target": [
+        "lib/session/holdings.ts"
+      ],
+      "scan": [
+        "lib",
+        "app"
+      ],
+      "how": "Move or clear a session's work with moveSessionWork (lib/session-move.ts) or endPresence; never write doing yourself.",
+      "patterns": [
+        {
+          "name": "doing cleared by hand",
+          "re": "\\$unset\\s*:\\s*\\{[^}]*\\bdoing\\b"
+        },
+        {
+          "name": "doing set by hand",
+          "re": "\\$set\\s*:\\s*\\{[^}]*\\bdoing\\s*:"
+        }
+      ]
+    },
+    "delivery": {
+      "question": "Did the text reach the session, and will it wake it?",
+      "owners": [
+        "lib/data/deliver.ts",
+        "lib/live.ts"
+      ],
+      "target": [],
+      "scan": [
+        "lib",
+        "app",
+        "worker"
+      ],
+      "how": "The wake limit is WAKE_CHAIN_MAX in lib/data/deliver.ts; keep no other. Never tell a sender a session wakes without the answer of lib/data/deliver.ts.",
+      "patterns": [
+        {
+          "name": "wake limit copy",
+          "re": "\\bWAKE_CHAIN\\b"
+        },
+        {
+          "name": "wake claim in text",
+          "re": "\\bwakes it\\b"
+        }
+      ]
+    },
+    "claude-process": {
+      "question": "Is this process a Claude Code session?",
+      "owners": [],
+      "target": [],
+      "scan": [
+        "worker"
+      ],
+      "how": "One matcher for the claude image name. Until it has one module, call matchesClaudeProcess (worker/launch.mjs) or isClaudeProcess (worker/activity.mjs); never add another copy.",
+      "patterns": [
+        {
+          "name": "claude image matcher",
+          "re": "\\^claude\\(.?\\.exe\\)\\?\\$"
+        },
+        {
+          "name": "claude name compared",
+          "re": "[!=]==?\\s*['\"]claude(\\.exe)?['\"]"
+        },
+        {
+          "name": "claude process filter",
+          "re": "Name='claude\\.exe'"
+        }
+      ]
+    },
+    "facts": {
+      "question": "Where does a stored machine or account come from?",
+      "owners": [
+        "worker/config.mjs",
+        "worker/setup.mjs",
+        "worker/claude-account.mjs"
+      ],
+      "target": [],
+      "scan": [
+        "lib",
+        "app",
+        "worker"
+      ],
+      "how": "Machine: the device (worker/config.mjs deviceName, the server's resolveMachine). Account: sessionAccount (worker/claude-account.mjs).",
+      "patterns": [
+        {
+          "name": "hostname as machine",
+          "re": "\\bhostname\\(\\)"
+        },
+        {
+          "name": "account read without the session",
+          "re": "\\breadAccount\\("
+        }
+      ]
+    },
+    "typed-facts": {
+      "question": "Can a model type a fact the server can know?",
+      "owners": [],
+      "target": [],
+      "scan": [
+        "lib/mcp",
+        "lib/types.ts"
+      ],
+      "how": "No tool argument carries the machine, account or model: the server takes them from the hook and the device.",
+      "patterns": [
+        {
+          "name": "model-typed fact",
+          "re": "\\b(machine|account|model)\\s*:\\s*z\\s*\\.\\s*string\\b"
+        }
+      ]
+    }
+  },
+  "baseline": {
+    "session": {
+      "app/api/agent/state/route.ts": 1,
+      "app/api/agent/wait/route.ts": 1,
+      "lib/data/deliver.ts": 2,
+      "lib/data/messages.ts": 2,
+      "lib/data/needs.ts": 1,
+      "lib/data/nudges.ts": 1,
+      "lib/data/pickup.ts": 5,
+      "lib/data/roster.ts": 1,
+      "lib/data/slots.ts": 1,
+      "lib/data/states.ts": 2,
+      "lib/mcp/policy.ts": 1,
+      "lib/mcp/server.ts": 2,
+      "lib/session-move.ts": 1
+    },
+    "placement": {
+      "app/api/agent/start/route.ts": 5,
+      "lib/session-move.ts": 1
+    },
+    "alive": {
+      "app/api/agent/wait/route.ts": 1,
+      "lib/alerts.ts": 1,
+      "lib/data/claude-overview.ts": 8,
+      "lib/data/dispatcher.ts": 2,
+      "lib/data/lanes.ts": 1,
+      "lib/data/messages.ts": 2,
+      "lib/data/pickup.ts": 3,
+      "lib/data/presence.ts": 10,
+      "lib/data/roster.ts": 6,
+      "lib/data/today-projects.ts": 1,
+      "lib/mcp/server.ts": 2,
+      "lib/session-item.ts": 2
+    },
+    "holdings": {
+      "lib/agent-sessions.ts": 2,
+      "lib/data/pickup.ts": 2
+    },
+    "delivery": {
+      "lib/data/messages.ts": 5,
+      "lib/mcp/docs.ts": 1
+    },
+    "claude-process": {
+      "worker/activity.mjs": 1,
+      "worker/hook-lib.mjs": 1,
+      "worker/launch.mjs": 2
+    },
+    "facts": {
+      "worker/hook-lib.mjs": 1,
+      "worker/hook-post-tool.mjs": 1,
+      "worker/hook-session-start.mjs": 1,
+      "worker/usage.mjs": 1
+    },
+    "typed-facts": {
+      "lib/mcp/server.ts": 6,
+      "lib/types.ts": 1
+    }
+  }
+}

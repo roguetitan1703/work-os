@@ -120,7 +120,7 @@ journalctl -u work-os --since "-1h" | grep -iE "killed|oom|memory|Started"
 - **Next.js 16.4.2** has breaking changes. Read the guide in `node_modules/next/dist/docs/` before writing Next code (`AGENTS.md`).
 - **Tests:**
   - `bash tests/e2e/run.sh` runs every suite against a throwaway mongod and app, and never touches the real database. `run.sh turbo vscode-reopen` runs only those suites.
-  - Worker tests: `node --test test/*.test.mjs` in `worker/`.
+  - `npm run check` runs the static checks, the type check and the unit tests, worker tests included (no database). Install the pre-push hook once per clone, in its main checkout: `git config core.hooksPath "$(git rev-parse --show-toplevel)/.githooks"`.
   - Currently 33 suites; the `tenancy` "operator sees Usage" check failed once and passed on a rerun.
 - **Deploying:**
   1. Build with `scripts/build-artifact.sh` (WSL or Linux).

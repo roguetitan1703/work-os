@@ -16,6 +16,7 @@ Atlas. Akash runs the server side with Om. This is the whole runbook, in order; 
 | `deploy/env.template` | every variable the server needs, names only |
 | `deploy/backup-env.template` | the backup's own env file (`/etc/work-os/backup-env`; section 11) |
 | `.github/workflows/server-build.yml` | builds `.next` on an arm64 GitHub runner and publishes it (section 7) |
+| `.github/workflows/checks.yml` | runs `npm run check` on every push to dev and master; not part of the gate until a person has seen its first green run (AGENTS.md, Checks) |
 | `deploy/deploy.sh` → `work-os-deploy` | fetch, download and check the build, `npm ci --omit=dev --ignore-scripts`, seal, switch, restart, health check, automatic rollback |
 | `deploy/fresh-build-secrets.mjs` → `work-os-fresh-secrets.mjs` | gives a downloaded build fresh secrets (section 7) |
 | `deploy/cron-alerts.sh` → `work-os-cron-alerts`, `deploy/backup.sh` → `work-os-backup` | what the timers run |
@@ -164,7 +165,7 @@ node -v                                                                         
 ```
 
 A Node update for Work OS: the same lines with the new version and its sha256 from that version's `SHASUMS256.txt`
-(and, to match, `node-version` in `.github/workflows/server-build.yml`), then `sudo systemctl restart work-os`. The
+(and, to match, `node-version` in `.github/workflows/server-build.yml` and `.github/workflows/checks.yml`), then `sudo systemctl restart work-os`. The
 old folder can go once the app runs on the new one. The deploy refuses a Node under `/opt/work-os/node` that is not
 22.x, and a build whose Node major differs from it.
 
@@ -458,7 +459,7 @@ One command on the server brings it to the latest `master`:
 sudo work-os-update
 ```
 
-**Nightly at 03:00 IST** (`deploy/systemd/work-os-update.{service,timer}`): the same `work-os-update`, so master is live by morning whenever its build exists; a push with no build yet changes nothing that night (`NO_BUILD_EXIT=0`). Install once: `sudo cp /srv/work-os/current/deploy/systemd/work-os-update.{service,timer} /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now work-os-update.timer`; check with `systemctl list-timers work-os-update.timer` and `journalctl -u work-os-update`. Rule that follows: push to master only what may go live that night.
+**Nightly at 03:00 IST** (`deploy/systemd/work-os-update.{service,timer}`): the same `work-os-update`, so master is live by morning whenever its build exists; a push with no build yet changes nothing that night (`NO_BUILD_EXIT=0`). `npm run build` runs `prebuild` first (the scope, words and owners checks); when one fails there is no build, so nothing deploys that night and nothing alerts. Run `npm run check` before pushing master. Install once: `sudo cp /srv/work-os/current/deploy/systemd/work-os-update.{service,timer} /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now work-os-update.timer`; check with `systemctl list-timers work-os-update.timer` and `journalctl -u work-os-update`. Rule that follows: push to master only what may go live that night.
 
 `work-os-update` (`deploy/update.sh`) fetches `origin/master`; if that commit is already live it stops. Otherwise it
 looks for its build in the `builds` release (GitHub Actions; `work-os-deploy` checks the attestation), then in the
