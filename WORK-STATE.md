@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 328. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 329. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -98,7 +98,8 @@ Copy of the Work OS state, version 328. WORK-STATE.md is a copy of the State, wr
 - docs/OVERVIEW.md misses real uses found while rewriting the pitch (22 Nov): a transfer/handover scene (only one line under End), the account switch, and claude.ai or phone chat creating tasks and notes that reach a session. It also says Needs can be answered on Discord, but HANDOVER says Discord has no buttons. Thinker plans, then a builder fixes it.
 - Wake fix (22 Nov): hook-wait.mjs waiter exits ~58 min after the last turn, so an idle session goes 'off' and send_message only queues. Raise the timeout to 24 h (hook-lib.mjs:54-55); hookNote should use the roster's process list (messages.ts:81). — waits on Om's go
 - Bug D (22 Nov): an MCP-key start_work row (machine = hostname 'Victus', no ccSession) sits beside the hook row and shows Working while lastSeen is under 10 min. Fix: the hook sign-in ends or links the same person's no-ccSession key rows for this device and project. Build with bugs A/B (note 287f5b8dc4). — waits on Om's go
+- Feedback nudge never built (seen 22 Nov: 3 save_state refusals in a row, no hint). Designed in docs/flows/session-messaging.md:72-74 ('Looks hard? Tell Work OS with feedback'). Refusals are recorded (lib/mcp/refusals.ts) but only end_work and feedback read them. Fix in the tool() wrapper beside forYouAfter (server.ts ~789): 2-3 same tool:kind refusals -> one line, rate-limited per session. — waits on Om's go; thinker plan
 
 ## Parked
 - 2 lines in Work OS: list_parked, or the project page.
-<!-- work-os-copy sha1:62da72bcb7b0e06b4b94e9af1661c4f1264b2b6a -->
+<!-- work-os-copy sha1:345a277c3b57a8d972ca5d70e3fa0eb05e71aec5 -->
