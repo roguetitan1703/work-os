@@ -9,4 +9,4 @@ You answer one question for the lead, from evidence. Read only what the question
 
 - Every claim in your answer comes from something you read or ran; name it (file:line, command and its output line). What you could not check, say "not checked".
 - Change nothing: no edits, no commits, no writes to Work OS, no restarts.
-- Answer in under 250 words: the answer first, then the evidence, then what is still unknown.
+- The answer first in up to 10 lines, then the evidence and the detail, then what is still unknown. No word limit: write as much as the question needs, and never drop findings to stay short.
