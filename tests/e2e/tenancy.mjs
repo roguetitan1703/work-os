@@ -1,4 +1,4 @@
-// Tenancy (docs/multi-user.md phase 2): two people in one organization (A = the owner, B = a member) and one person in
+// Tenancy (docs/ops/multi-user.md phase 2): two people in one organization (A = the owner, B = a member) and one person in
 // another (C). B sees A's shared work but none of A's private things; C sees nothing of the first organization through
 // MCP (every read tool), pages, search, the notes file routes or the worker and admin APIs; numbers restart per
 // organization; inbox notices and alerts go only to their recipient, by the recipient's own settings. Also runs the
@@ -196,7 +196,7 @@ try {
   check('list: add_project with visibility members makes a list of the owner and Bea', circle?.visibility === 'members' && circle.sharedWith?.length === 2 && circle.sharedWith.includes('me') && circle.sharedWith.includes('Bea'), JSON.stringify(circle));
   const ct = (await must(kA, 'add_task', { title: 'Circle task one', project: 'Circle Room' })).created;
   ct.id = (await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: ct.ref }))._id;
-  // A subtask in it (docs/subtasks.md) carries the list too, and is as invisible off the list as its parent.
+  // A subtask in it (docs/archive/subtasks.md) carries the list too, and is as invisible off the list as its parent.
   const cSub = (await must(kA, 'add_task', { title: 'Circle subtask one', parent: ct.ref })).created;
   const cSubDoc = await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: cSub.ref });
   check('list: a subtask in it carries the list', cSubDoc?.projectId === circle.id && cSubDoc.visibility === 'members' && cSubDoc.sharedWith?.includes(Bu.userId) && !cSubDoc.sharedWith.includes(Du.userId), JSON.stringify(cSubDoc && [cSubDoc.visibility, cSubDoc.sharedWith?.length]));

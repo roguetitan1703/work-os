@@ -1,4 +1,4 @@
-// Installs the Work OS hooks (hook.mjs) into Claude Code's user settings on this PC (docs/setup-pc.md).
+// Installs the Work OS hooks (hook.mjs) into Claude Code's user settings on this PC (docs/ops/setup-pc.md).
 // It also installs the Work OS skills (/transfer, /declutter: worker/skills, skills-install.mjs) into ~/.claude/skills.
 //   node worker.mjs hooks install [--force] [--adopt NAME]   copy the files of FILES to <worker config dir>/hooks and merge the hook
 //                                   entries into ~/.claude/settings.json (a dated backup first; other settings and hooks

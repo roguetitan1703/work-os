@@ -1,6 +1,6 @@
 import type { SessionView } from '@/lib/data/launcher';
 
-// Honest session labels (docs/launcher.md "Sessions list"): shared by the project page and /claude.
+// Honest session labels (docs/ops/launcher.md "Sessions list"): shared by the project page and /claude.
 
 const STATE: Record<SessionView['state'], { label: string; tone: string }> = {
   starting: { label: 'starting', tone: 'text-sky-600 dark:text-sky-400' },

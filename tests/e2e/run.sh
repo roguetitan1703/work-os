@@ -209,7 +209,7 @@ export MAIL_CAPTURE_DIR="$TMP/mail" E2E_STATE="$TMP/state.json"
 export E2E_NO_NET=1 # the server makes no outbound calls (lib/data/repo-visibility.ts asks GitHub whether a repo is public)
 export CRON_SECRET=testcron-e2e-0123456789abcdef
 export CRON_ALLOW_AT=1 # the e2e build is a production build; this lets the cron take ?at= (app/api/cron/alerts/route.ts)
-# Server actions use a key from the environment, as on the server (docs/hosting.md "The build's secrets"); fresh per run.
+# Server actions use a key from the environment, as on the server (docs/ops/hosting.md "The build's secrets"); fresh per run.
 export NEXT_SERVER_ACTIONS_ENCRYPTION_KEY="$(node -e "console.log(require('crypto').randomBytes(32).toString('base64'))")"
 # The e2e owner runs the deployment (lib/operator.ts): health, Discord registration and servers, Usage.
 export OPERATOR_EMAILS=e2e-owner@example.test

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Gives a downloaded build its own secrets (docs/hosting.md "The build's secrets"). Installed root-owned as
+// Gives a downloaded build its own secrets (docs/ops/hosting.md "The build's secrets"). Installed root-owned as
 // /usr/local/sbin/work-os-fresh-secrets.mjs; deploy.sh runs it as the build user on a release's .next after
 // unpacking a build from the public "builds" release, before anything serves it:
 //
@@ -30,7 +30,7 @@ const hex = n => randomBytes(n).toString('hex');
 const pmFile = path.join(dir, 'prerender-manifest.json');
 const pm = JSON.parse(fs.readFileSync(pmFile, 'utf8'));
 if (!pm.preview || typeof pm.preview.previewModeId !== 'string') {
-  console.error('prerender-manifest.json has no preview values: Next changed its format; stopping (check docs/hosting.md)');
+  console.error('prerender-manifest.json has no preview values: Next changed its format; stopping (check docs/ops/hosting.md)');
   process.exit(1);
 }
 const oldPreview = [pm.preview.previewModeId, pm.preview.previewModeSigningKey, pm.preview.previewModeEncryptionKey].filter(v => typeof v === 'string' && v.length >= 16);
@@ -42,7 +42,7 @@ const ppFile = path.join(dir, 'server', 'preview-props.json');
 if (fs.existsSync(ppFile)) {
   const pp = JSON.parse(fs.readFileSync(ppFile, 'utf8'));
   if (typeof pp.previewModeId !== 'string') {
-    console.error('server/preview-props.json has no previewModeId: Next changed its format; stopping (check docs/hosting.md)');
+    console.error('server/preview-props.json has no previewModeId: Next changed its format; stopping (check docs/ops/hosting.md)');
     process.exit(1);
   }
   const { previewModeId, previewModeSigningKey, previewModeEncryptionKey } = pm.preview;
@@ -56,7 +56,7 @@ const jsFile = path.join(dir, 'server', 'server-reference-manifest.js');
 const ref = JSON.parse(fs.readFileSync(jsonFile, 'utf8'));
 const old = ref.encryptionKey;
 if (typeof old !== 'string' || !/^[A-Za-z0-9+/=]{20,}$/.test(old)) {
-  console.error('server-reference-manifest.json has no encryptionKey: Next changed its format; stopping (check docs/hosting.md)');
+  console.error('server-reference-manifest.json has no encryptionKey: Next changed its format; stopping (check docs/ops/hosting.md)');
   process.exit(1);
 }
 const fresh = randomBytes(32).toString('base64');
@@ -66,7 +66,7 @@ if (fs.existsSync(jsFile)) {
   const js = fs.readFileSync(jsFile, 'utf8');
   const n = js.split(old).length - 1;
   if (n !== 1) {
-    console.error(`server-reference-manifest.js holds the key ${n} times, not once: stopping (check docs/hosting.md)`);
+    console.error(`server-reference-manifest.js holds the key ${n} times, not once: stopping (check docs/ops/hosting.md)`);
     process.exit(1);
   }
   fs.writeFileSync(jsFile, js.replace(old, fresh));

@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { matchesClaudeProcess } from './launch.mjs';
 
-// Activity counts and the named session list (docs/launcher.md "Activity counts").
+// Activity counts and the named session list (docs/ops/launcher.md "Activity counts").
 // Counts: numbers only, transcripts only stat()ed. Session list: per session only sessionId, the
 // folder NAME (last path segment), a title (<= 80 chars) and a few numbers/flags. The title comes from
 // the title records Claude Code writes into the transcript (custom-title, ai-title, agent-name, summary);

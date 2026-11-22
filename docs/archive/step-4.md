@@ -1,7 +1,9 @@
+> Record, 22 Nov 2026: design of 14 to 15 Nov (Assign to anyone, Continue, lid-open resume). Built in part; the dispatcher, the worker and lid-open resume are described as they are in `docs/ops/dispatcher.md` and `docs/HANDOVER.md`.
+
 # Step 4 design: hand over to any agent, Continue, lid-open resume
 
 Status: **design, 16 Nov 2026, for Om; revised after Fable's review (last section).** Serves flows W2 (assign to any
-worker), S3 (Continue from the phone), M2 (the lid opens and work resumes) in docs/PRODUCT.md section 7, plus the daemon
+worker), S3 (Continue from the phone), M2 (the lid opens and work resumes) in docs/archive/product-14-nov.md section 7, plus the daemon
 half of N2 and MS2 (an idle session learns of an answer or a message) and H1's "else S3 or W2". The goal of step 4:
 - from the phone, hand a task to "any agent that can", and it starts on a ready machine or says plainly what it waits for;
 - Continue a project whose Next has work and nobody on it;
@@ -18,10 +20,10 @@ second one.
 | **Give to Claude** (`claude` mark on a task, claim on the worker's poll, cap, reconciler, take back on edit, finished / stopped / stuck alerts, Claude's tasks list) | **Kept and grown into the hand-over.** Same mark, same claim, same alerts. Gains a target (`any` or one live session), a work class, the trust word, an approved text version, and doors other than the app (with the trust rules below). The button is renamed **Hand over**. |
 | Its first message: read the boilerplate note, "ask with a Claude item" | **Replaced** by a fixed line that calls `start_work` (Orders are served there since step 1) and uses `ask` and `hand_in`. The boilerplate note picker goes; the dispatcher switch and cap stay. |
 | **Start** (launcher), **Open in VS Code**, **turbo clone**, Open task in Claude Code | **Kept**; the push path of a hand-over, Continue and resume all go through `createStartJob` / `createCloneJob`. Start's default first message becomes the Continue line (section 4). |
-| **Reopen all / Dismiss** (worker `openset.mjs`, job kinds `reopen` and `dismiss`, `device.reopen`, `reopen-banner.tsx`) | **Removed in slice 4e, after Om's first real resume**, replaced by lid-open resume (PRODUCT.md 6.2: fresh sessions with the brief, never reviving old conversations). Open in VS Code on a listed session stays. |
+| **Reopen all / Dismiss** (worker `openset.mjs`, job kinds `reopen` and `dismiss`, `device.reopen`, `reopen-banner.tsx`) | **Removed in slice 4e, after Om's first real resume**, replaced by lid-open resume (docs/archive/product-14-nov.md 6.2: fresh sessions with the brief, never reviving old conversations). Open in VS Code on a listed session stays. |
 | "Could be running and isn't" (roster, project page, digest) | **Kept**; its Start opens with the Continue line. |
 | Hand-made keep-alive crons ("is there Next work?" every 30 minutes) | **Replaced** by the wait line (section 6) and lid-open resume. |
-| Open in Claude Desktop | Not touched here; it is on PRODUCT.md's cut list. |
+| Open in Claude Desktop | Not touched here; it is on docs/archive/product-14-nov.md's cut list. |
 
 ## What gets built
 
@@ -38,7 +40,7 @@ New fields on the mark (`ClaudeMark`, lib/db.ts), all optional so today's marks 
 | `endReason` | `done`, `review`, `blocked`, `taken_back`, `away` (the machine went quiet), `dead`, `failed` |
 | `resumes` | how many times lid-open put it back in the queue (limit 2) |
 
-New task fields: **`workClass`** (think / do / chore, PRODUCT.md 6.2a; set in the app, `add_task`, `update_task`),
+New task fields: **`workClass`** (think / do / chore, docs/archive/product-14-nov.md 6.2a; set in the app, `add_task`, `update_task`),
 **`textVersion`** (a counter bumped on every write to text a run reads: title, description, checklist, links, blocked
 reason, the task's note) and **`attended`** ("only with me there", set by a person in the app; section 3). Project:
 `autoResume` (default on). Computer (Claude › Setup › Computers, owner only): `resume` (lid-open on or off).
@@ -217,7 +219,7 @@ sessions. Instead a session can keep one background wait running:
 - **Claude › Setup › Computers:** "Resume work when this computer comes back" (slice 4d).
 - **Project › Info:** `autoResume` (slice 4d). **Task:** `workClass` (4a), "Only with me there" (`attended`, 4a).
 
-### 8. Worker changes (small, all on the fixed list of PRODUCT.md section 9)
+### 8. Worker changes (small, all on the fixed list of docs/archive/product-14-nov.md section 9)
 - Start jobs may carry `model` (`opus`, `sonnet`, `haiku` only; anything else fails the job); launched as `--model`.
 - Start jobs may carry **`unattended: true`** (hand-over, Continue and resume starts only). The worker maps it to
   **one fixed flag set** in `claudeArgs`, never free-form arguments from the server: edits accepted, the Work OS MCP

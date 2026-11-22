@@ -5,7 +5,7 @@ import { MongoClient, type ClientSession, type Db, type Collection, type IndexDe
 import type { CodeLocation, TaskSource, Activity, Actor, ActivityType, FieldChange, ProjectStatus, Mode, Priority, Status, ChecklistItem, Link, Recurrence, Visibility, WeeklyReview, RoutineLog } from './types';
 import { asActor } from './actors';
 
-// ── Ownership (docs/multi-user.md, phase 2) ──
+// ── Ownership (docs/ops/multi-user.md, phase 2) ──
 // Every stored document carries orgId. Documents that belong to one person carry ownerId (or userId: the recipient of
 // a notification, push device, alert). Shared things carry visibility (and, for 'members', sharedWith): a project's,
 // which its tasks, notes, Claude items, history and trash entries copy. Queries go through lib/scope.ts, which adds
@@ -59,9 +59,9 @@ export type TaskDoc = Placed & {
   doneOn: string | null;
   doneBy: Actor | null;
   source?: TaskSource;
-  /** Dispatcher (docs/dispatcher.md). Set only by the UI actions and the dispatcher itself, never by a task write from MCP or Discord. */
+  /** Dispatcher (docs/ops/dispatcher.md). Set only by the UI actions and the dispatcher itself, never by a task write from MCP or Discord. */
   claude?: ClaudeMark | null;
-  /** Subtasks (docs/subtasks.md): the parent's id, with its ref and title copied for the rows (kept in step on rename). */
+  /** Subtasks (docs/archive/subtasks.md): the parent's id, with its ref and title copied for the rows (kept in step on rename). */
   parentId?: string | null;
   parentRef?: number;
   parentTitle?: string;
@@ -76,7 +76,7 @@ export type ClaudeMark = {
   state: 'queued' | 'running' | 'finished' | 'stopped' | 'failed';
   markedAt: Date;
   markedBy: 'user';
-  /** The signed-in person who gave it to Claude: only their own computers claim it (docs/auth.md). */
+  /** The signed-in person who gave it to Claude: only their own computers claim it (docs/ops/auth.md). */
   markedByUserId?: string;
   markedByOrgId?: string;
   /** Which linked folder, when the project has more than one (a workerFolders _id). */
@@ -175,7 +175,7 @@ export type RitualDoc = Omit<RoutineLog, 'id' | 'count'> & { _id: string; orgId:
 /** _id `<name>:<orgId>` (task and Claude item numbers per organization). */
 export type CounterDoc = { _id: string; seq: number; orgId: string };
 /**
- * One ask to one person (docs/flows/plan-1-3.md slice 4). Stamped with its project's placement like a task (the door
+ * One ask to one person (docs/archive/plan-1-3.md slice 4). Stamped with its project's placement like a task (the door
  * filters by the document's own ownerId / visibility / sharedWith) and moved with the project (setProjectPlacement).
  */
 export type NeedKind = 'decide' | 'approve' | 'review' | 'do' | 'chase';
@@ -351,7 +351,7 @@ export type StateParkedDoc = Placed & { _id: string; projectId: string; id: stri
 export type StateDecisionDoc = Placed & StateDecision & { _id: string; projectId: string; archivedBy?: string };
 /** Where the work is on one machine, as the agent reported it from git. */
 export type StateWhere = { branch?: string; head?: string; dirty?: boolean; worktrees?: string[]; at: Date; by: string };
-/** The project's live memory (docs/flows/step-1.md): one per project, `_id` = the project id, stamped with the project's placement. */
+/** The project's live memory (docs/archive/step-1.md): one per project, `_id` = the project id, stamped with the project's placement. */
 export type StateDoc = Placed & {
   _id: string;
   projectId: string;
@@ -378,7 +378,7 @@ export type StateDoc = Placed & {
   updatedAt: Date;
 };
 /**
- * A message to a project (docs/flows/step-1.md section 4), stamped with the project's placement: every reader of the
+ * A message to a project (docs/archive/step-1.md section 4), stamped with the project's placement: every reader of the
  * project can read it. `word` is how it came in, set by the server and never by the caller: person (the app), chat (the
  * claude.ai connector, which may be unattended), agent (a key).
  */
@@ -419,7 +419,7 @@ export type MessageDoc = Placed & {
   at: Date;
 };
 
-/** A session working on a project (docs/flows/step-1.md section 5), stamped with the project's placement. `forYouCursor`: what the "for you" line has already named. */
+/** A session working on a project (docs/archive/step-1.md section 5), stamped with the project's placement. `forYouCursor`: what the "for you" line has already named. */
 /** What a session is doing, as the Work OS hook or the call-based rules say (lib/data/presence-state.ts). */
 export type PresenceState = 'on' | 'working' | 'waiting' | 'idle' | 'off';
 export type PresenceDoc = Placed & {
@@ -456,7 +456,7 @@ export type PresenceDoc = Placed & {
   named?: string[];
   /** Writes made since the last save_state of this session (the save nudge). */
   writesSinceSave: number;
-  // The roster (docs/flows/plan-1-3.md slice 7): what start_work and set_doing report about the worker.
+  // The roster (docs/archive/plan-1-3.md slice 7): what start_work and set_doing report about the worker.
   model?: string;
   account?: string;
   /** The orchestrator's session id (for a builder). */
@@ -558,7 +558,7 @@ export type SettingsDoc = {
   oldKeys?: { name: string; prefix: string }[];
   oldDevices?: { name: string; prefix: string }[];
   dismissedAt?: Date | null;
-  /** dispatcher:<userId>: the person's switch and limits for the task dispatcher (docs/dispatcher.md). */
+  /** dispatcher:<userId>: the person's switch and limits for the task dispatcher (docs/ops/dispatcher.md). */
   enabled?: boolean;
   maxConcurrent?: number;
   boilerplateNoteId?: string;
@@ -600,12 +600,12 @@ export type SettingsDoc = {
   modes?: unknown;
 };
 
-// ── Session launcher (docs/launcher.md) ──
+// ── Session launcher (docs/ops/launcher.md) ──
 /** A machine running the worker. Only the SHA-256 of its key (wkr_…) is stored. */
 export type DeviceHooks = { version: string | null; events: number; stale: boolean; signIn: 'worker' | 'key' | null };
 /** A downloaded worker's self-update (worker/update.mjs): when it last installed a signed release and from which version, and the last refusal or failure ("update refused: bad signature"). */
 export type DeviceSelfUpdate = { updatedAt: Date | null; from: string | null; problem: string | null };
-export type DeviceDoc = { _id: string; name: string; /** The signed-in user who created it, and their organization (docs/auth.md). Missing on devices from before. */ ownerId?: string; orgId?: string; hash: string; prefix: string; createdAt: Date; lastSeenAt: Date | null; revokedAt: Date | null; /** Set each time Replace key made a new key for this computer (history: when, and how many times). */ keyReplacedAt?: Date; keyReplacements?: number; worker?: { version: string; os: string; /** First 12 hex of the sha256 of the downloaded worker bundle (absent when run from the repo). */ bundle?: string; /** The worker passes a first message to Claude (config allowPrompts). The dispatcher needs it. */ allowPrompts?: boolean; /** Turbo mode: this computer clones a project's repo when it is not there (config allowClone), and into projectsDir. */ allowClone?: boolean; projectsDir?: string; /** This PC's Claude Code hooks, as its worker reports them (version: first 12 hex of the hooks version, null when none are installed). */ hooks?: DeviceHooks; /** Present when the worker updates itself (a downloaded worker of version 0.5.0 or later). */ selfUpdate?: DeviceSelfUpdate }; /** Latest counts from the worker (numbers only). `at` is the server's receive time. */ activity?: DeviceActivity; /** Latest named session list from the worker (docs/launcher.md Activity counts). */ claudeSessions?: { at: Date; items: ReportedClaudeSession[] }; /** Sessions that were open before the PC restarted, as the worker remembers them (docs/launcher.md). Cleared when the worker reports none, or on Dismiss. */ reopen?: { at: Date; items: ReopenItem[] } };
+export type DeviceDoc = { _id: string; name: string; /** The signed-in user who created it, and their organization (docs/ops/auth.md). Missing on devices from before. */ ownerId?: string; orgId?: string; hash: string; prefix: string; createdAt: Date; lastSeenAt: Date | null; revokedAt: Date | null; /** Set each time Replace key made a new key for this computer (history: when, and how many times). */ keyReplacedAt?: Date; keyReplacements?: number; worker?: { version: string; os: string; /** First 12 hex of the sha256 of the downloaded worker bundle (absent when run from the repo). */ bundle?: string; /** The worker passes a first message to Claude (config allowPrompts). The dispatcher needs it. */ allowPrompts?: boolean; /** Turbo mode: this computer clones a project's repo when it is not there (config allowClone), and into projectsDir. */ allowClone?: boolean; projectsDir?: string; /** This PC's Claude Code hooks, as its worker reports them (version: first 12 hex of the hooks version, null when none are installed). */ hooks?: DeviceHooks; /** Present when the worker updates itself (a downloaded worker of version 0.5.0 or later). */ selfUpdate?: DeviceSelfUpdate }; /** Latest counts from the worker (numbers only). `at` is the server's receive time. */ activity?: DeviceActivity; /** Latest named session list from the worker (docs/ops/launcher.md Activity counts). */ claudeSessions?: { at: Date; items: ReportedClaudeSession[] }; /** Sessions that were open before the PC restarted, as the worker remembers them (docs/ops/launcher.md). Cleared when the worker reports none, or on Dismiss. */ reopen?: { at: Date; items: ReopenItem[] } };
 /** Where a session was last used: the VS Code extension, a terminal, or something else (the SDK, a script). */
 export type SessionOrigin = 'vscode' | 'cli' | 'desktop' | 'other';
 export type ReportedClaudeSession = { sessionId: string; folder: string; title: string; lastActiveAt: Date; subagentsActive: number; startedByWorkOs: boolean; running: boolean; /** The computer has no evidence of this session's process: `running` is then true (older readers keep working) but the roster's daemon join says nothing. */ unknown?: true; origin?: SessionOrigin };
@@ -626,7 +626,7 @@ export type AgentSessionDoc = { _id: string; hash: string; /** The session this 
  */
 export type AgentIdentityDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; ccSessions: string[]; projectId: string | null; proc?: { pid: number; procStart?: string }; /** H15: the task the dispatcher started this session for. */ dispatched?: { taskId: string; ref: number }; createdAt: Date; lastSeen: Date };
 export type WorkerFolderDoc = { _id: string; /** The device's owner and organization. */ orgId: string; ownerId: string; deviceId: string; folderId: string; name: string; git: boolean; remote?: string; branch?: string; projectId: string | null; linkedAt: Date | null; seenAt: Date; missing: boolean };
-export type WorkerJobDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; kind: 'start' | 'resume' | 'stop' | 'vscode' | 'desktop' | 'reopen' | 'dismiss'; folderId?: string; projectId?: string; /** Not set for reopen and dismiss (they act on the worker's own remembered set). */ sessionId?: string; prompt?: string; /** Turbo mode: the repo is not on the computer; the worker clones it first (docs/launcher.md). No folderId then. */ clone?: { repo: string; trusted: boolean }; /** The task ref of a dispatcher-started run: the worker puts it in the claude process's environment (WORK_OS_DISPATCHED) so the hooks refuse Orders edits there. */ dispatched?: number; createdAt: Date; takenAt: Date | null; doneAt: Date | null; ok?: boolean; error?: string };
+export type WorkerJobDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; kind: 'start' | 'resume' | 'stop' | 'vscode' | 'desktop' | 'reopen' | 'dismiss'; folderId?: string; projectId?: string; /** Not set for reopen and dismiss (they act on the worker's own remembered set). */ sessionId?: string; prompt?: string; /** Turbo mode: the repo is not on the computer; the worker clones it first (docs/ops/launcher.md). No folderId then. */ clone?: { repo: string; trusted: boolean }; /** The task ref of a dispatcher-started run: the worker puts it in the claude process's environment (WORK_OS_DISPATCHED) so the hooks refuse Orders edits there. */ dispatched?: number; createdAt: Date; takenAt: Date | null; doneAt: Date | null; ok?: boolean; error?: string };
 export type WorkerSessionDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; /** '' while its repo is still being cloned (turbo mode). */ folderId: string; projectId: string | null; /** Turbo mode: still cloning `repo` (owner/name). */ cloning?: boolean; repo?: string; /** Turbo mode: cloned but not trusted automatically; Claude Code asks the person on first run. */ needsTrust?: boolean; state: 'starting' | 'running' | 'dead' | 'stopped' | 'failed'; startedAt: Date; updatedAt: Date; error?: string; /** Its owner removed it from the list; the doc is kept. */ hidden?: boolean; /** Started by the dispatcher for `taskId`. */ dispatched?: boolean; taskId?: string; /** The run's own Work OS key (lib/run-keys.ts): only its hash; one live key per run, replaced at every start or resume. */ runKey?: RunKeyDoc };
 /** A dispatched run's key (lib/run-keys.ts). keyHash: the computer's device key hash when it was made (a key replace ends it). */
 export type RunKeyDoc = { hash: string; keyHash: string; ref: number; at: Date; expiresAt: Date; /** The ended state this key's mint moved the row out of (to starting): a release (launch failed) puts it back. */ from?: 'stopped' | 'dead' };
@@ -653,7 +653,7 @@ export type IntakeDoc = { _id: string; source: 'mailloom'; reportId: string; org
 
 /** One email sent (for the hourly limits in lib/mail.ts). TTL index keeps 2 hours. */
 export type MailLogDoc = { _id: string; kind: 'reset' | 'changed' | 'test' | 'invite'; at: Date; /** Hash of the recipient, for the per-address limit. */ to?: string };
-/** Request log (lib/usage.ts, docs/usage-log.md): one doc per UTC hour, _id 'YYYY-MM-DDTHH'; `counts` keys are 'kind|caller|route'. TTL index keeps 35 days. */
+/** Request log (lib/usage.ts, docs/ops/usage-log.md): one doc per UTC hour, _id 'YYYY-MM-DDTHH'; `counts` keys are 'kind|caller|route'. TTL index keeps 35 days. */
 export type RequestStatsDoc = { _id: string; at: Date; total: number; counts: Record<string, number> };
 
 // ── Connection (cached across hot reloads and warm serverless invocations) ──
@@ -732,7 +732,7 @@ const INDEXES: [string, IndexDescription[]][] = [
       { key: { orgId: 1, type: 1, at: -1 }, name: 'org_comments_at', partialFilterExpression: { type: 'comment' } },
     ]],
     ['projects', [
-      // Names: one per organization among shared projects, one per owner among private ones (docs/multi-user.md).
+      // Names: one per organization among shared projects, one per owner among private ones (docs/ops/multi-user.md).
       { key: { orgId: 1, nameLower: 1 }, unique: true, name: 'org_shared_name_unique', partialFilterExpression: { visibility: 'org' } },
       { key: { orgId: 1, ownerId: 1, nameLower: 1 }, unique: true, name: 'owner_private_name_unique', partialFilterExpression: { visibility: 'private' } },
       // The door's filter (orgId + visibility or owner) on every project read; the partial indexes above cannot serve it.
@@ -783,7 +783,7 @@ const INDEXES: [string, IndexDescription[]][] = [
     ['intake', [{ key: { source: 1, reportId: 1 }, unique: true, name: 'source_report_unique' }]],
     ['mailLog', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 2 * 3600 }, { key: { kind: 1, at: -1 }, name: 'kind_at' }, { key: { kind: 1, to: 1, at: -1 }, name: 'kind_to_at' }]],
     ['requestStats', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 35 * 86_400 }]],
-    // The calendar link (docs/calendar.md): one row per person per organization, found by the hash of its token.
+    // The calendar link (docs/ops/calendar.md): one row per person per organization, found by the hash of its token.
     ['calendarFeeds', [{ key: { hash: 1 }, unique: true, name: 'hash_unique' }]],
     ['messages', [{ key: { orgId: 1, projectId: 1, at: -1 }, name: 'org_project_at' }, { key: { orgId: 1, thread: 1, at: 1 }, name: 'org_thread' }]],
     ['states', [{ key: { orgId: 1, projectId: 1 }, unique: true, name: 'org_project_unique' }]],

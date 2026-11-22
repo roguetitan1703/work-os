@@ -1,4 +1,4 @@
-// Flow W3 (docs/flows/plan-1-3.md slice 7): heavy slots. A computer allows 2 heavy slots at once across every session on
+// Flow W3 (docs/archive/plan-1-3.md slice 7): heavy slots. A computer allows 2 heavy slots at once across every session on
 // it; a third request waits until one is released or its 30-minute lease ends; concurrent requests never exceed the cap.
 // A machine name that matches one of the person's devices is that device (so two spellings are one machine).
 // Seed profile: none.

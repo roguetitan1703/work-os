@@ -5,7 +5,7 @@ import type { Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useApp } from './app-context';
 
-/** "Needs Om: <ask>" in place of a task's percent when it has an open Need (docs/flows/plan-1-3.md slice 4). Nothing otherwise. */
+/** "Needs Om: <ask>" in place of a task's percent when it has an open Need (docs/archive/plan-1-3.md slice 4). Nothing otherwise. */
 export function NeedChip({ task, className }: { task: Pick<Task, 'need'>; className?: string }) {
   const { people } = useApp();
   const n = task.need;

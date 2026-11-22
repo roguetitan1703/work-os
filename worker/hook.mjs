@@ -1,4 +1,4 @@
-// Claude Code hooks for Work OS (docs/flows/step-1.md section 6; docs/HANDOVER.md "Claude Code hooks"). This file is the
+// Claude Code hooks for Work OS (docs/archive/step-1.md section 6; docs/HANDOVER.md "Claude Code hooks"). This file is the
 // entry point and the router: `node hook.mjs <event>` runs hook-<event>.mjs, for the events listed in EVENTS (hook-lib.mjs).
 //   session-start  SessionStart (also after compaction): start_work for the repo in the cwd; the brief goes into context.
 //   stop           Stop: files changed since the session started and no save_state (or end_work) since: block once.

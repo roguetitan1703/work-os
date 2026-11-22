@@ -6,7 +6,7 @@ import { isMember } from './people';
 import { orgGuildId, type DiscordLink } from './discord/client';
 import './request-context';
 
-// Each person's own settings that are not about one feature (docs/multi-user.md phase 3), in `profile:<userId>`:
+// Each person's own settings that are not about one feature (docs/ops/multi-user.md phase 3), in `profile:<userId>`:
 //   timezone      IANA zone; what "today" and alert hours mean for them (default APP_TZ, else UTC)
 //   quiet hours   quietStart–quietEnd (whole hours in their zone): alerts wait until it ends; equal = none
 //   digestHour    the hour their daily digest is sent (default 9)

@@ -1,6 +1,8 @@
+> Record, 22 Nov 2026: design of 14 Nov. Built (State, Needs, messages, Orders, the start brief), then changed by the Harness and Identity work; what exists now is in `docs/HANDOVER.md` and `docs/flows/agent-system.md`.
+
 # Step 1 design: project State, the brief and the inbox
 
-Status: **design, 14 Nov 2026, for Om.** Serves flows S1, S2, S3, H1, MS1–MS4 in docs/PRODUCT.md (section 7). The
+Status: **design, 14 Nov 2026, for Om.** Serves flows S1, S2, S3, H1, MS1–MS4 in docs/archive/product-14-nov.md (section 7). The
 goal of step 1:
 - any agent, in any AI, on any machine, can start on a project and lose nothing;
 - an idea or a message dropped from a chat reaches the next session on that project.
@@ -30,7 +32,7 @@ Done means each flow's test in `tests/flows/` passes, **and** cutroom and Work O
   retries. Appends (add_next, add_later, add_decision) and set_where (keyed by machine) go through `$push` / `$set`
   and never clash. Every write bumps `version`.
 - **Who writes:** any agent may append; set_now, move_next and done_next are for the orchestrator of the project
-  (PRODUCT.md 6.1: builders report on their tasks, they don't rewrite State). Decisions and Next lines written by
+  (docs/archive/product-14-nov.md 6.1: builders report on their tasks, they don't rewrite State). Decisions and Next lines written by
   someone other than the reader reach the reader labelled `writtenBy`, as information.
 - **The repo copy:** `save_state` returns the markdown for WORK-STATE.md, headed with the version it came from
   ("Copy of the Work OS state, version 41. Edit it in Work OS"). The agent writes the file and commits it with the work.

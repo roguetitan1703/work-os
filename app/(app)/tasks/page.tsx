@@ -26,7 +26,7 @@ export default async function BoardPage({ searchParams }: Props) {
   const mode = ModeSchema.safeParse(sp.mode).success ? (sp.mode as Mode) : undefined;
   const due = DUE.includes(sp.due as DueFilter) ? (sp.due as DueFilter) : undefined;
   const s = await requireScope();
-  // ?assigned=me: the "Assigned to me" view (docs/multi-user.md phase 4). Text search is the global search (Tasks filter).
+  // ?assigned=me: the "Assigned to me" view (docs/ops/multi-user.md phase 4). Text search is the global search (Tasks filter).
   const assigned = sp.assigned === 'me' ? 'me' : '';
   const common = { project: sp.project || undefined, mode, due, assignee: assigned ? s.userId : undefined };
   const [open, doneThisWeek, projects, needs] = await Promise.all([

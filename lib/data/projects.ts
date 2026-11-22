@@ -47,7 +47,7 @@ export function toProject(d: ProjectDoc): Project {
   };
 }
 
-// ── Where things live (docs/multi-user.md "Private vs shared") ──────────────
+// ── Where things live (docs/ops/multi-user.md "Private vs shared") ──────────────
 
 /** Where a shared document lives: its owner, who sees it, and (visibility 'members') the list; [] otherwise. */
 export type Placement = { ownerId: string; visibility: Visibility; sharedWith: string[] };
@@ -147,7 +147,7 @@ async function projectNamed(c: Collections, nameLower: string): Promise<ProjectD
 }
 
 /**
- * Names (docs/multi-user.md "Project names"): unique among the projects the person can see, so nobody learns the name
+ * Names (docs/ops/multi-user.md "Project names"): unique among the projects the person can see, so nobody learns the name
  * of someone else's private project by being refused. Indexes back this up: one name per organization among shared
  * projects, one per owner among private ones.
  */
@@ -640,7 +640,7 @@ async function setProjectPlacement(c: Collections, p: ProjectDoc, next: Placemen
   // Needs whose addressee can no longer read the project (made private, taken off the list) are withdrawn.
   await (await import('./needs')).withdrawUnreadableNeeds(c, { projectId: p._id }, 'access');
   await move('trash', { 'task.projectId': p._id });
-  // The project's State and the sessions present on it (docs/flows/step-1.md section 1): same placement, so the door shows them to the project's readers only.
+  // The project's State and the sessions present on it (docs/archive/step-1.md section 1): same placement, so the door shows them to the project's readers only.
   await move('states', { projectId: p._id });
   await move('stateParked', { projectId: p._id });
   await move('stateDecisions', { projectId: p._id });

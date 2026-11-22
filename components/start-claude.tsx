@@ -16,7 +16,7 @@ import { linkAndStartAction, searchFoldersAction, startOptionsAction, startProje
 import type { TurboInfo } from '@/lib/data/turbo';
 import { Select } from '@/components/ui/select';
 
-// Start Claude (docs/ux-audit/proposal.md §5.5): one flow for every entry point. The URL says what is open:
+// Start Claude (docs/archive/ux-audit/proposal.md §5.5): one flow for every entry point. The URL says what is open:
 //   ?start=1          step 1, pick a project
 //   ?start=<project>  step 2, confirm folder + first message
 // Opening is a normal navigation (system Back closes it); closing and switching steps only rewrite

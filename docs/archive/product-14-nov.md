@@ -1,3 +1,5 @@
+> Record, 22 Nov 2026: this is the 14 Nov product draft, never updated. It is replaced by `docs/OVERVIEW.md` (what Work OS is for and every feature in a line) and `docs/HANDOVER.md` (how each is built). Section numbers cited elsewhere point here.
+
 # Work OS: what it is for (draft for Om and Claude to agree)
 
 Status: **draft, 14 Nov 2026 (round 2).** Nothing here is agreed yet. Once a section or flow is agreed it gets marked

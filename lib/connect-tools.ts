@@ -1,4 +1,4 @@
-// Settings › AI tools: how to connect other AI tools to this Work OS's MCP server (docs/connect.md).
+// Settings › AI tools: how to connect other AI tools to this Work OS's MCP server (docs/ops/connect.md).
 // Every snippet below was taken from the tool's own official docs on CHECKED, with this server's address filled in.
 // `tested` says whether anyone connected that tool to a Work OS server; the screen shows it, never hides it.
 

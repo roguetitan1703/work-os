@@ -1,4 +1,4 @@
-// Run keys (docs/dispatcher.md "Run keys"): a dispatched run's own Work OS credential. The worker asks for one with its device key
+// Run keys (docs/ops/dispatcher.md "Run keys"): a dispatched run's own Work OS credential. The worker asks for one with its device key
 // (POST /api/worker/run-key) for this computer's own dispatched session; every MCP call made with it is dispatched on the server,
 // whatever the run sends: Orders are never writable (even naming the person's real session), a session id that is not the run's
 // is refused, mail and Discord are refused, and the sessions it starts are marked. The person's own key is unaffected.

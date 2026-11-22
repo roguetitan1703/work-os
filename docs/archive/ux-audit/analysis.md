@@ -1,3 +1,5 @@
+> Record, 22 Nov 2026: stage 2 of the UX audit. Not updated; what was built is described in `docs/HANDOVER.md` and `docs/OVERVIEW.md`.
+
 # UX audit, stage 2: analysis
 
 Inputs: [crawl-a.md](crawl-a.md) (daily work), [crawl-b.md](crawl-b.md) (setup, connections, Claude Code), [../ui-inventory.md](../ui-inventory.md) incl. Om's notes. Frequencies are inferred (no usage log exists); costs are measured from /today on phone 390 px and desktop 1280 px. "Actions" = taps + swipes + inputs.

@@ -1,4 +1,4 @@
-# Server CPU (phase 0 of docs/multi-user.md)
+# Server CPU (phase 0 of docs/ops/multi-user.md)
 
 Vercel paused the account for too much serverless CPU. This is what was cut before Work OS runs anywhere else, and how to measure it again.
 
@@ -73,7 +73,7 @@ The preloader still warms Today, Tasks and Projects every 5 minutes while a tab 
 up all of an in-use Claude page's requests. It could warm only after a hint instead (WORK-STATE Later).
 
 Server side, a write costs nothing extra while nobody in its organization has a page open. When someone else does,
-it costs one small read (docs/multi-user.md "As built: phase 5 push"). Worker heartbeats now write a computer's
+it costs one small read (docs/ops/multi-user.md "As built: phase 5 push"). Worker heartbeats now write a computer's
 report in one operation instead of three.
 
 ## Multi-user: a team of 20 on a t3.small
@@ -165,7 +165,7 @@ credits. Memory: 356 MB RSS at peak, against 2 GB on the box (a 1,024 MB heap ca
 ### Graviton (t4g.small), shared with other apps
 
 The server Work OS goes on is a **t4g.small**: 2 Graviton2 (arm64) vCPUs, 2 GiB, already running other apps
-(docs/hosting.md section 1). Its credits are the same as a t3.small's: 24 an hour, a 20% baseline per vCPU (0.4 vCPU,
+(docs/ops/hosting.md section 1). Its credits are the same as a t3.small's: 24 an hour, a 20% baseline per vCPU (0.4 vCPU,
 1,440 CPU seconds an hour), up to 576 banked, standard mode.
 
 - **Speed.** Not measured on Graviton. A t4g vCPU is a whole core (a t3 vCPU is a hyperthread); for one Node process
@@ -177,12 +177,12 @@ The server Work OS goes on is a **t4g.small**: 2 Graviton2 (arm64) vCPUs, 2 GiB,
   `CPUCreditBalance` in CloudWatch, not Work OS's share of it. Before the move, look at that graph for the last two
   weeks: if it already falls through the working day and only refills overnight, the other apps use most of the
   baseline and Work OS's 4% is what tips it.
-- **Builds are not on the box** (docs/hosting.md section 7): a build used about 2 vCPU for several minutes, a good part
+- **Builds are not on the box** (docs/ops/hosting.md section 7): a build used about 2 vCPU for several minutes, a good part
   of an hour's credits, and more memory than the box can spare. `npm ci --omit=dev` on a deploy is short.
 - **Memory** is the tighter limit here: the box has 1.8 GiB for every app and already uses its swap. Work OS peaked
   at 216 MB of heap and 356 MB RSS with 20 people (measured above with a 1024 MB heap cap); on the box its unit caps
   the heap at 288 MB, slows it past 380 MB (`MemoryHigh`) and restarts it past 480 MB (`MemoryMax`)
-  (docs/hosting.md section 6). Those caps are estimates, not measured on the box: the first weeks tell.
+  (docs/ops/hosting.md section 6). Those caps are estimates, not measured on the box: the first weeks tell.
 
 **When to size up.** Move to a t4g.medium (4 GiB; or set the instance to unlimited credits) when either of these happens:
 - the CPU credit balance (CloudWatch `CPUCreditBalance`) goes down from one working week to the next instead of

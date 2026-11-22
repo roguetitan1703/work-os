@@ -18,7 +18,7 @@ const IDLE_TTL_MS = 10 * 60_000;
 type Idle = { server: McpServer; at: number };
 const pool = new Map<string, Idle[]>();
 
-// Every key belongs to a user in an organization (docs/auth.md): a server is never shared across users,
+// Every key belongs to a user in an organization (docs/ops/auth.md): a server is never shared across users,
 // organizations or keys, so nothing one caller's server holds can reach another's request.
 // The instructions name the key's owner and list the organization's modes, so a rename or a new mode builds new servers.
 function keyOf(baseUrl: string, caller: Caller, who: { name: string; modes: string[] }): string {

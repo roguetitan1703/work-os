@@ -144,7 +144,7 @@ export async function DiscordSection({ base, caller }: { base: string; caller: C
                 </li>
                 <li>
                   <b>The live listener</b> (<code>work-os-discord</code>, deploy/systemd) keeps one connection to Discord and passes posts and reactions to Work OS. See
-                  docs/hosting.md.
+                  docs/ops/hosting.md.
                 </li>
                 <li>Each person then connects their own account in Settings › Notifications.</li>
               </ol>

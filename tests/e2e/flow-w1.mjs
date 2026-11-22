@@ -1,4 +1,4 @@
-// Flow W1 (docs/flows/plan-1-3.md slice 7): the roster. Workers (present sessions) carry model, account, machine, branch
+// Flow W1 (docs/archive/plan-1-3.md slice 7): the roster. Workers (present sessions) carry model, account, machine, branch
 // and the task they are on; builders show under their orchestrator; a worker that stops calling shows as off within one
 // cycle (its state is computed on every read, so there is no cycle to wait for) and its task as unheld; a quiet worker is
 // idle; a worker with an open Need waits on a person; "could be running and isn't" lists projects with unblocked Next

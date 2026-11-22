@@ -7,7 +7,7 @@ import { getUserSetting, scoped, setUserSetting, type Scope } from './scope';
 // Where alerts go: in-app inbox (always), phone push (Web Push) and Discord DM, each
 // switchable in Settings, plus per-alert-type switches. Also tracks "last seen" times
 // for the status panel (Claude connector, Discord). Everything here is per person: their settings
-// (notify:<userId>), their inbox, their push devices (docs/multi-user.md "Inbox, push, alerts").
+// (notify:<userId>), their inbox, their push devices (docs/ops/multi-user.md "Inbox, push, alerts").
 
 export const ALERT_KINDS: { kind: AlertKind; label: string; hint: string }[] = [
   { kind: 'digest', label: 'Daily digest', hint: 'Once a day at your hour (Settings › Alerts): what needs you, your top 3 for today, what moved per project, which agents run or stall; on Mondays four numbers and up to three proposals. Replaces the morning alerts' },

@@ -1,6 +1,8 @@
+> 22 Nov 2026: built as the hook gate, State copy, release Need and Words (H1 to H10). Where this text differs, `docs/flows/agent-system.md` and `docs/HANDOVER.md` section 3 are right.
+
 # Rules that are enforced, not remembered (draft, 18 Nov 2026)
 
-## How a session works (agreed with Om 18 Nov, after the Fable review in working-system-review.md)
+## How a session works (agreed with Om 18 Nov, after the Fable review in docs/archive/working-system-review.md)
 1. **Start / after compaction:** the Work OS hook calls start_work for the folder and puts the Orders and State into the
    session (needs WORK_OS_KEY in the PC's Claude Code settings). The session works from that, not its summary.
 2. **While working:** status changes go to Work OS (save_state, tasks, notes). WORK-STATE.md is a copy: the hook

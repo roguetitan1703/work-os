@@ -8,7 +8,7 @@ import { InputError, NotFoundError } from './data/errors';
 import { runWithRequestContext } from './request-context';
 import { timezoneOf } from './profile';
 
-// Shared wrapper for /api/worker/* (docs/launcher.md): device keys only (wkr_…; Work OS API keys
+// Shared wrapper for /api/worker/* (docs/ops/launcher.md): device keys only (wkr_…; Work OS API keys
 // are refused), body size cap, per-device rate limit, JSON errors.
 
 const MAX_BODY = 1_000_000;

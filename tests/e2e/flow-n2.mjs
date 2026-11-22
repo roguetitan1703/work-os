@@ -1,4 +1,4 @@
-// Flow N2 (docs/flows/plan-1-3.md slice 4, "Needs"): the addressed person answers in the app, and the asker reads it.
+// Flow N2 (docs/archive/plan-1-3.md slice 4, "Needs"): the addressed person answers in the app, and the asker reads it.
 //   - answering on Today (desktop and phone) takes an option and an optional note, records who, how ("app") and when, and the wait time;
 //   - the task shows its percent again and the card leaves "Needs you";
 //   - the asker reads the answer through `needs` (with the wait time) and nothing else changed on the task;

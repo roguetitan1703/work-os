@@ -10,7 +10,7 @@ import { sendTestEmailAction } from './security-actions';
 import { needsReauth, useReauth } from '@/components/reauth';
 import { deviceFromUA } from '@/lib/ua';
 
-// Settings › Security (docs/auth.md): passkeys, authenticator app with backup codes, password, test email.
+// Settings › Security (docs/ops/auth.md): passkeys, authenticator app with backup codes, password, test email.
 // Everything except the test email is a Better Auth call from the browser (lib/auth-client.ts), which checks the session.
 
 export type EmailState = { configured: boolean; missing: string[]; to: string };

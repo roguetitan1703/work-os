@@ -2,7 +2,7 @@ import { workerRoute } from '@/lib/worker-route';
 import { isDispatchedRun, mintRunKey, releaseRunKey } from '@/lib/run-keys';
 import { InputError } from '@/lib/data/errors';
 
-// Is this session a dispatched run, and if so its own Work OS key (lib/run-keys.ts, docs/dispatcher.md "Run keys"). The worker asks
+// Is this session a dispatched run, and if so its own Work OS key (lib/run-keys.ts, docs/ops/dispatcher.md "Run keys"). The worker asks
 // before it starts, resumes or reopens a session; a dispatched one is launched with only that key. Device key checked in workerRoute.
 // Bodies:
 //   { sessionId }: 200 { dispatched: false } for a session that is no dispatched run of the person; 200 { key, expiresAt, ref } for

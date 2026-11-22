@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Step 1 of the cut-over (docs/hosting.md): an account for every address in OPERATOR_EMAILS, before anything else.
+// Step 1 of the cut-over (docs/ops/hosting.md): an account for every address in OPERATOR_EMAILS, before anything else.
 //
 // Why first: the operator is recognised by email (lib/operator.ts). An invitation marks the invitee's email verified,
 // so if an owner or admin invited an operator address that had no account yet, whoever accepted that invitation would

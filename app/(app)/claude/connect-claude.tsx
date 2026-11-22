@@ -10,7 +10,7 @@ const cta = 'inline-flex items-center justify-center gap-1.5 h-11 md:h-9 px-4 ro
 /**
  * Step 1 of Claude › Set up: sign in with Claude (OAuth, no key to copy). Add Work OS as a connector on claude.ai (or
  * one command in Claude Code), press Allow once. Done when an approved app or a key has been used at least once.
- * Details and rules: docs/auth.md "Connecting Claude with OAuth".
+ * Details and rules: docs/ops/auth.md "Connecting Claude with OAuth".
  */
 export function ConnectStep({ url, done, lastUsedAt, apps }: { url: string; done: boolean; lastUsedAt: string | null; apps: AuthorizedApp[] }) {
   return (

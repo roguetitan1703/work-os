@@ -3,7 +3,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { collections } from './db';
 import { scoped, type Scope } from './scope';
 
-// Run keys: a dispatched run's own Work OS credential (docs/dispatcher.md "Run keys"). The task dispatcher has the worker start
+// Run keys: a dispatched run's own Work OS credential (docs/ops/dispatcher.md "Run keys"). The task dispatcher has the worker start
 // Claude Code on a task whose text can come from a teammate, so the run must never hold its person's own credential (their
 // Claude Code key, OAuth token or device key). Instead the worker asks for a run key (POST /api/worker/run-key, device key)
 // just before it starts or resumes a dispatched session, and launches Claude Code with only that key in a strict MCP config.

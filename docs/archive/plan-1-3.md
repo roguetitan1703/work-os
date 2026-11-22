@@ -1,8 +1,10 @@
+> Record, 22 Nov 2026: design of 14 Nov. Slices 1 to 3 (State, Needs and results, the roster) are built and have since changed; what exists now is in `docs/HANDOVER.md`.
+
 # Build plan: steps 1–3 (State and inbox, Needs and the digest, the roster)
 
 Status: **plan, 15 Nov 2026.** Om asked for a significant part planned at once, reviewed independently, then built.
-This covers the "first three to build" of docs/PRODUCT.md section 8. Step 1's detail is in
-[step-1.md](step-1.md); steps 2 and 3 are designed here. Each slice names the flows it serves (PRODUCT.md section 7).
+This covers the "first three to build" of docs/archive/product-14-nov.md section 8. Step 1's detail is in
+[step-1.md](step-1.md); steps 2 and 3 are designed here. Each slice names the flows it serves (docs/archive/product-14-nov.md section 7).
 
 What Om can do when all three land:
 - close the laptop mid-work, start a fresh session anywhere, in any AI, and lose nothing;
@@ -61,14 +63,14 @@ As [step-1.md](step-1.md) sections 1, 2, 3 and 5, with two changes from its open
 (the boilerplate note becomes the organisation Orders; anyone who can edit a project can add a Decision).
 
 - New collections in the scoped door: `states` and `presence`, each stamped with its project's placement and added to
-  the placement cascade, `takeOffLists` and project delete (step-1.md section 1).
+  the placement cascade, `takeOffLists` and project delete (docs/archive/step-1.md section 1).
 - Tools: `start_work`, `save_state`, `import_state`, `get_state`. Every tool answer gains `forYou` (ids and counts)
   when the caller is a present session; `forYou` is a registry later slices add sources to.
 - **Session identity:** presence keyed by session id if given, else key / OAuth client + project; a `forYouCursor`
-  timestamp per row; writes at most once a minute; `presence` stays out of push-hint TOPICS (step-1.md section 5).
+  timestamp per row; writes at most once a minute; `presence` stays out of push-hint TOPICS (docs/archive/step-1.md section 5).
 - **Orders:** the `orders` field; Orders bodies editable by a person in the app only.
 - App: the State card on the project page and the phone's project screen (read and edit with versions).
-- **Slice 1b (batch 1, builder S after slice 2):** the SessionStart and Stop hooks (step-1.md section 6).
+- **Slice 1b (batch 1, builder S after slice 2):** the SessionStart and Stop hooks (docs/archive/step-1.md section 6).
 
 ## Slice 2: personal digest on today's data
 Replaces the 09:00 `due_today` digest with the B4 personal digest, built only from data that exists today.
@@ -94,7 +96,7 @@ As [step-1.md](step-1.md) section 4. New collection `messages`, stamped with the
 Every reader of the project can read its messages (no person-private messages). Tools `send_message`, `inbox`,
 `message_status`, `reply`. Applying a `decision` adds it to State. The app's Inbox tab on the project page.
 - Trust is set by the server from how the call came in, three values: `person` (the app; Discord later), `chat`
-  (the claude.ai connector, which may be unattended), `agent` (keys). See step-1.md section 4.
+  (the claude.ai connector, which may be unattended), `agent` (keys). See docs/archive/step-1.md section 4.
 
 ## Slice 4: Needs (step 2)
 
@@ -113,7 +115,7 @@ PushNotifications.
 | `status` | open → answered, or withdrawn, or replaced |
 | `answer` | `{ option, text?, by, via (app / phone / discord / chat), at }` |
 
-- `appOnly` (true for anything touching production, money or credentials, PRODUCT.md section 9): answered in the
+- `appOnly` (true for anything touching production, money or credentials, docs/archive/product-14-nov.md section 9): answered in the
   app only, never from Discord.
 - **Tools:** `ask(project, to, kind, ask, example?, options?, task?)`; `needs(project? | to: me)`; `withdraw_need(id)`.
   **There is no MCP tool to answer a Need.** The claude.ai connector can't prove a person is present (it also serves
@@ -134,7 +136,7 @@ PushNotifications.
   answered: option B"); the next `start_work` on that project lists answered Needs first. On a machine with the
   daemon, an idle session is not woken in this slice (that is step 4).
 - **In the app:** "Needs you" at the top of Today (desktop and phone), each with its options as buttons and a text
-  box; a Needs tab per project; State's Next lines show "waits on Om" from open Needs (step-1.md `waitsOn`).
+  box; a Needs tab per project; State's Next lines show "waits on Om" from open Needs (docs/archive/step-1.md `waitsOn`).
 - **Moving the hidden waits in:** a one-off chore (Haiku, else Sonnet): read every project's WORK-STATE "waits on
   Om" lines and tasks' `waiting_on_om` text, propose Needs to Om as one list, create the ones he keeps.
 - Test N1: a Need shows under "Needs you" in `start_work` and on Today, one alert, a second of the same kind replaces
@@ -191,7 +193,7 @@ Presence (slice 1) grows into **workers**.
 
 ## Not in steps 1–3
 Waking an idle session with the daemon, Continue from the phone and lid-open resume (step 4); recipes and ship
-(step 5); a second machine (step 6); the dispatcher on Discord (step 7). The hooks of step-1.md section 6 come after
+(step 5); a second machine (step 6); the dispatcher on Discord (step 7). The hooks of docs/archive/step-1.md section 6 come after
 slice 1 is in real use.
 
 ## Risks the plan carries

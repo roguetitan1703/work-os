@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
-// The consent screen of the OAuth sign-in (docs/auth.md "Connecting Claude with OAuth"): Better Auth sends a signed-in
+// The consent screen of the OAuth sign-in (docs/ops/auth.md "Connecting Claude with OAuth"): Better Auth sends a signed-in
 // person here when an app asks to connect. Not public (proxy.ts sends the signed-out to /login first). Never framed
 // (frame-ancestors 'none' in the page CSP). The page only shows the request; Allow and Deny go to Better Auth, which
 // checks the signature and the person's session again.

@@ -7,7 +7,7 @@ import type { FeedTask } from '../calendar-ics';
 const MAX_EVENTS = 2000;
 
 /**
- * The tasks in the person's calendar feed (docs/calendar.md): open, not archived, with a due and/or start date, assigned
+ * The tasks in the person's calendar feed (docs/ops/calendar.md): open, not archived, with a due and/or start date, assigned
  * to them or owned by them. Read through the door, so the visibility rule applies: nothing private to someone else,
  * nothing from a project shared with a list they are not on. Only the fields the feed shows are read.
  */

@@ -6,7 +6,7 @@ import { eventState, presenceState, type EventKind, type EventName } from './pre
 import { scoped, type Scope } from '../scope';
 import { placeIn } from './projects';
 
-// Sessions working on a project (docs/flows/step-1.md section 5). A row per session, stamped with the project's placement
+// Sessions working on a project (docs/archive/step-1.md section 5). A row per session, stamped with the project's placement
 // (so the door shows it to the project's readers only, and the placement cascade moves it with the project) and kept
 // out of the push-hint topics (lib/scope.ts TOPICS): a heartbeat refreshes nobody's page.
 //

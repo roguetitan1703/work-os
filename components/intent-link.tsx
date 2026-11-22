@@ -3,7 +3,7 @@
 import NextLink from 'next/link';
 import { useState, type ComponentProps } from 'react';
 
-// The app's Link (docs/cpu.md "Multi-user"). Next prefetches every link that scrolls into view: a route-tree request
+// The app's Link (docs/ops/cpu.md "Multi-user"). Next prefetches every link that scrolls into view: a route-tree request
 // and a metadata request each, about 50 server renders for one Today or Tasks page, and all of them again after every
 // write (a revalidating action drops the router's prefetch cache). Pages here are dynamic, so those prefetches carry no
 // page data. This Link prefetches only while the pointer or focus is on it (hover, touch, keyboard): the pattern in

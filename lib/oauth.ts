@@ -7,7 +7,7 @@ import { personOf, roleOf, type Agent, type Caller } from './caller';
 import { OAUTH_SCOPE, UNUSED_CLIENT_HOURS, mcpResource } from './oauth-config';
 import { timezoneOf } from './profile';
 
-// OAuth sign-in for MCP clients (docs/auth.md "Connecting Claude with OAuth"). Better Auth's OAuth provider plugin
+// OAuth sign-in for MCP clients (docs/ops/auth.md "Connecting Claude with OAuth"). Better Auth's OAuth provider plugin
 // (lib/auth-server.ts) does registration, authorization, tokens and revocation; this file is the resource side: what
 // /api/mcp does with a token, and what Settings › Connections shows and revokes. Tokens are opaque, stored hashed, and
 // looked up in the database on every call, so a revoked token, a removed member or a disabled client stops at once.

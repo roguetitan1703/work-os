@@ -36,7 +36,7 @@ import { roster, unblockedNext } from './data/roster';
 //   never_started  P1 still Not Started 24h after creation
 //   unblocked      as soon as the last task it waited on is closed
 //   assigned       as soon as someone else assigns a task to you
-//   claude_*       the task dispatcher (docs/dispatcher.md): finished / stopped (sent at once) and "may be stuck" (scheduled)
+//   claude_*       the task dispatcher (docs/ops/dispatcher.md): finished / stopped (sent at once) and "may be stuck" (scheduled)
 //   quiet hours    each person's own (default 23:00–08:00 in their timezone; held until they end)
 
 export const ALERT_RULES = {

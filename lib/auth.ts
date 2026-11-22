@@ -1,5 +1,5 @@
 // Small auth helpers with no database and no Better Auth import, so proxy.ts and client-safe code can use them.
-// Sign-in itself is Better Auth (lib/auth-server.ts); who is calling is lib/caller.ts. docs/auth.md has the whole picture.
+// Sign-in itself is Better Auth (lib/auth-server.ts); who is calling is lib/caller.ts. docs/ops/auth.md has the whole picture.
 //
 //   BETTER_AUTH_SECRET  signs session cookies, the cookie cache and the MCP confirm tokens; encrypts TOTP secrets.
 //                       At least 32 characters. SESSION_SECRET is read when it is not set (the old name).

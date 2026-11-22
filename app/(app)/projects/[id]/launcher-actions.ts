@@ -13,7 +13,7 @@ import { turboInfo, turboStart, type TurboInfo } from '@/lib/data/turbo';
 
 type R<T> = { ok: true; data: T } | { ok: false; error: string };
 
-// Session launcher actions (docs/launcher.md). Each requires a signed-in caller (lib/caller.ts): Start creates a
+// Session launcher actions (docs/ops/launcher.md). Each requires a signed-in caller (lib/caller.ts): Start creates a
 // job that opens Claude Code on a computer.
 async function run<T>(projectId: string | null, fn: (c: Caller) => Promise<T>): Promise<R<T>> {
   try {

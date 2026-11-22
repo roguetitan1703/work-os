@@ -2,7 +2,7 @@
 //   idlePageHour     a real Chromium tab on a page for an hour (Playwright's page clock), untouched or in use (input
 //                    every 30 s), with its push stream as it is;
 //   idleWorkerHour   the real worker loop and core for an hour on a simulated clock, with its real push stream up.
-// Used by the budgets suite; docs/cpu.md has the numbers.
+// Used by the budgets suite; docs/ops/cpu.md has the numbers.
 import { B } from '../e2e/lib.mjs';
 import { signInPage } from './clients.mjs';
 import { createCore } from '../../worker/core.mjs';

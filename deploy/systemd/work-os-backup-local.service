@@ -1,4 +1,4 @@
-# Nightly on-box copy of the Atlas database (deploy/backup.sh --nightly-local, docs/hosting.md section 11). Not off-box.
+# Nightly on-box copy of the Atlas database (deploy/backup.sh --nightly-local, docs/ops/hosting.md section 11). Not off-box.
 [Unit]
 Description=Work OS database on-box nightly copy
 After=network-online.target
@@ -13,7 +13,7 @@ Group=workos-backup
 # Only the backup's own file (database URI, BACKUP_* settings, R2 keys); never /etc/work-os/env. systemd (root) reads
 # it, so a missing file fails the unit, on purpose.
 EnvironmentFile=/etc/work-os/backup-env
-# Root-owned copy of deploy/backup.sh (docs/hosting.md section 4), not the release's.
+# Root-owned copy of deploy/backup.sh (docs/ops/hosting.md section 4), not the release's.
 ExecStart=/usr/local/sbin/work-os-backup --nightly-local
 # A shared box with little memory: mongodump streams and is light; the cap stops a surprise, the others keep theirs.
 MemoryMax=256M

@@ -1,4 +1,4 @@
-// Flow MS3 (docs/flows/step-1.md "Tests", rewritten for Identity step 6: messages go to a session of the sender or to a person): message_status applied, with a commit, shows to the sender; applying a decision adds
+// Flow MS3 (docs/archive/step-1.md "Tests", rewritten for Identity step 6: messages go to a session of the sender or to a person): message_status applied, with a commit, shows to the sender; applying a decision adds
 // it to the State's Decisions with the message id, but only for your own person's word; a request becomes a task with one call.
 // (An agent-word message to an unattended session becoming a Need is slice 4.) Seed profile: none.
 import { ME, MCP, check, finish, makeUser, mkKey, rawDb } from './lib.mjs';

@@ -1,4 +1,4 @@
-// Helpers shared by the flow-* suites (docs/flows/step-1.md "Tests"). Kept apart from lib.mjs so slices that add flow
+// Helpers shared by the flow-* suites (docs/archive/step-1.md "Tests"). Kept apart from lib.mjs so slices that add flow
 // suites do not edit the same file.
 import { B, rawDb } from './lib.mjs';
 

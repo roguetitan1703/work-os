@@ -1,4 +1,4 @@
-// Static half of the one-door test (docs/multi-user.md "One door for data"): fails when code that serves people reaches
+// Static half of the one-door test (docs/ops/multi-user.md "One door for data"): fails when code that serves people reaches
 // a MongoDB collection without going through lib/scope.ts. Raw access is allowed only on a line that says why:
 //   // scope-ok: <reason>
 // Run: node tests/scope-check.mjs (also `npm run build` via prebuild, and the tenancy e2e suite).

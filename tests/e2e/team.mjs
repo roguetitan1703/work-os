@@ -1,4 +1,4 @@
-// Team (docs/multi-user.md phase 4): assignees, alerts to the assignee, take-back through a sub-page of a task's note,
+// Team (docs/ops/multi-user.md phase 4): assignees, alerts to the assignee, take-back through a sub-page of a task's note,
 // the phase 2 review leftovers (project made private onto a private name, restore order), and Settings › Members:
 // invite, accept, role changes, the last-owner guard, and removing a member (sessions, Claude keys, computers and
 // claims stop; their private things are kept). Seed profile: none (this suite makes its own people and data).

@@ -1,3 +1,5 @@
+> Record, 22 Nov 2026: crawler B's notes for the UX audit. Not updated; see `docs/OVERVIEW.md` for the product now.
+
 # UX audit, crawler B: setup, connections and everything Claude Code
 
 Measured by running the app, not by reading code. Input for a later analysis; no redesign is proposed here.

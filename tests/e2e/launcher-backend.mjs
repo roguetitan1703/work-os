@@ -24,7 +24,7 @@ import { signRelease, verifyRelease, publicKeyText, releaseVersionAt } from '../
   check('worker download: only these two paths are public', other.status !== 200, other.status);
 }
 
-// Self-update (docs/launcher.md "Self-update"): latest.json carries the release signature only when one was made for
+// Self-update (docs/ops/launcher.md "Self-update"): latest.json carries the release signature only when one was made for
 // this very bundle, and a downloaded worker carrying the signing key's public half installs that release from the
 // server. A throwaway key; the signature file sits where scripts/build-artifact.sh puts it (.next/worker-signature.json).
 {
@@ -192,7 +192,7 @@ await db.collection('workerJobs').insertOne({ _id: 'j_fail1', deviceId: A.id, ki
 await api(A.key, 'POST', '/api/worker/status', { jobs: [{ id: 'j_fail1', ok: false, error: 'e'.repeat(500) }] });
 const fs2 = await db.collection('workerSessions').findOne({ _id: sid2 }); check('failed job -> session failed, error <=300', fs2.state === 'failed' && fs2.error.length === 300);
 
-// session origin, reopen list (docs/launcher.md "Reopen after a restart")
+// session origin, reopen list (docs/ops/launcher.md "Reopen after a restart")
 {
   const V = await mkDevice('dev-vs'); // its own device: the per-device rate limit counts calls
   const s1 = randomUUID(), s2 = randomUUID();

@@ -1,10 +1,10 @@
-// Push (docs/multi-user.md "As built: phase 5 push"): the page stream (/api/stream) and the worker stream
+// Push (docs/ops/multi-user.md "As built: phase 5 push"): the page stream (/api/stream) and the worker stream
 // (/api/worker/stream). Checks who may connect, that a write reaches exactly the people who can read it (a teammate and
 // the writer for shared work; nobody else for a private task; for a project shared with chosen people, only the people
 // on its list, and a person taken off or put on hears it; nobody in another organization), that hints carry no
 // titles, that an open Claude page shows a teammate's change without a reload, that a worker gets a job pushed (the
 // real worker/push.mjs client), and that removing a member closes their streams. Ends with the request counts of an
-// idle Claude page for an hour, push off (the old poll) and on (docs/cpu.md). Seed profile: none.
+// idle Claude page for an hour, push off (the old poll) and on (docs/ops/cpu.md). Seed profile: none.
 import { randomBytes, randomUUID } from 'node:crypto';
 import { B, EMAIL, ME, MCP, PW, check, finish, launch, login, makeUser, mkKey, rawDb, sha } from './lib.mjs';
 import { connectPush } from '../../worker/push.mjs';
@@ -271,7 +271,7 @@ try {
   for (const x of ws) x.close();
   await ctxA.close();
 
-  // ── requests of an idle Claude page in an hour (docs/cpu.md) ──
+  // ── requests of an idle Claude page in an hour (docs/ops/cpu.md) ──
   // A simulated hour (Playwright clock) on /claude Now: "untouched" (no input) and "in use" (mouse moves every 30 s),
   // with the push stream blocked (the page falls back to the old poll, i.e. before phase 5) and with push on.
   const measure = async (push, inUse) => {

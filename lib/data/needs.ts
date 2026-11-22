@@ -13,7 +13,7 @@ import { InputError, NotFoundError } from './errors';
 import { placeIn, placeOf, resolveProject } from './projects';
 import { presenceState } from './presence-state';
 
-// Needs: one ask to one person (docs/flows/plan-1-3.md, slice 4; flows N1, N2, B1, B2, F2). A Need replaces "waits on
+// Needs: one ask to one person (docs/archive/plan-1-3.md, slice 4; flows N1, N2, B1, B2, F2). A Need replaces "waits on
 // Om" in progress text and chat. Stamped with its project's placement (the door filters each document by its own
 // ownerId / visibility / sharedWith), so everyone who can read the project can read its Needs, and a project made
 // private takes them along (setProjectPlacement).
@@ -653,7 +653,7 @@ export async function createReviewNeed(s: Scope, t: TaskDoc, actor: Actor, resul
   });
 }
 
-/** A dispatcher Need's options are fixed by the server (H15, docs/dispatcher.md "As built (H15)"): the asker is the dispatcher, nobody words them. */
+/** A dispatcher Need's options are fixed by the server (H15, docs/ops/dispatcher.md "As built (H15)"): the asker is the dispatcher, nobody words them. */
 export const DISPATCH_OPTIONS: NeedOption[] = [
   { id: 'again', label: 'Give to Claude again', means: 'Put the task in the queue for Claude again, as a fresh run.' },
   { id: 'takeback', label: 'Take back', means: 'Clear the task from Claude. Nothing runs; the task stays as it is.' },

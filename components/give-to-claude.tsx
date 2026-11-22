@@ -11,7 +11,7 @@ import type { Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { ResponsiveSheet } from './responsive-sheet';
 
-// Give to Claude / Take back (docs/dispatcher.md). Only a signed-in session can do this (server actions);
+// Give to Claude / Take back (docs/ops/dispatcher.md). Only a signed-in session can do this (server actions);
 // MCP, Discord and apply_changes cannot. One sheet for every entry point: task page, row menus.
 
 const btn = 'h-11 md:h-9 px-4 rounded-full text-sm font-semibold inline-flex items-center justify-center gap-1.5 disabled:opacity-50';
@@ -184,7 +184,7 @@ export function ClaudeMarkSheet({ task, onClose }: { task: Pick<Task, 'id' | 're
 }
 
 /**
- * "Open in Claude Code" (docs/connect.md): a terminal on the person's PC with Claude Code in the project's folder, already told
+ * "Open in Claude Code" (docs/ops/connect.md): a terminal on the person's PC with Claude Code in the project's folder, already told
  * which task it was opened from. The same start path, checks and trust as Start; the task is not given to Claude.
  */
 export function OpenInClaudeCodeSheet({ task, onClose, mode = 'terminal' }: { task: Pick<Task, 'id' | 'ref' | 'title' | 'projectId'>; onClose: () => void; mode?: 'terminal' | 'desktop' }) {

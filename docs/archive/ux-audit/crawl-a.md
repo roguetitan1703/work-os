@@ -1,3 +1,5 @@
+> Record, 22 Nov 2026: crawler A's notes for the UX audit. Not updated; see `docs/OVERVIEW.md` for the product now.
+
 # Work OS UX audit, crawler A: daily work
 
 Measured on the running app, 2026-10-15, against a throwaway database. Input for a later analysis; no redesign is proposed here.

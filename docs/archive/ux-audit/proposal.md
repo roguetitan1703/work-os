@@ -1,7 +1,9 @@
+> Record, 22 Nov 2026: stage 3 of the UX audit, a proposal. Not updated; what was built is in `docs/HANDOVER.md`.
+
 # Work OS UX audit, stage 3: proposed structure
 
 Status: proposal, awaiting Om's approval. Nothing is built.
-Inputs: [analysis.md](analysis.md), [crawl-a.md](crawl-a.md), [crawl-b.md](crawl-b.md), [../ui-inventory.md](../ui-inventory.md) (with Om's notes), HANDOVER.md, launcher.md, WORK-STATE.md.
+Inputs: [analysis.md](analysis.md), [crawl-a.md](crawl-a.md), [crawl-b.md](crawl-b.md), [../ui-inventory.md](../ui-inventory.md) (with Om's notes), HANDOVER.md, docs/ops/launcher.md, WORK-STATE.md.
 Numbers marked "est." are estimates from the crawl measurements; nothing here has been prototyped or run.
 AGENTS.md applies to every slice: before writing code, read the relevant guide in `node_modules/next/dist/docs/`, because this Next.js has breaking changes.
 

@@ -6,7 +6,7 @@ import { normalizeRemote } from './remote.mjs';
 import { writeMarker } from './markers.mjs';
 import { trustFolder } from './trust.mjs';
 
-// Turbo mode (docs/launcher.md "Turbo mode"): a start job for a project whose repo is not on this PC makes the folder, clones the
+// Turbo mode (docs/ops/launcher.md "Turbo mode"): a start job for a project whose repo is not on this PC makes the folder, clones the
 // repo, links the folder and starts Claude there. Anyone who can start a session here can already have Claude clone anything, so
 // there is no confirmation; the hard guards are the ones below: git transports that run commands are refused, git cannot prompt,
 // there is a time limit, the destination stays inside the projects folder, and `allowClone: false` turns it all off.

@@ -4,10 +4,10 @@ import path from 'node:path';
 import { bundleFrom, readWorkerFiles } from '../worker/bundle/build.mjs';
 
 // The worker (worker/*.mjs, Node built-ins only) as one downloadable file, so a teammate without the repository can
-// install it (docs/launcher.md "Installing without the repo"). Built from the release's own files and kept: a release
+// install it (docs/ops/launcher.md "Installing without the repo"). Built from the release's own files and kept: a release
 // never changes, so the bytes and the sha256 never do. No secrets: only the worker's source.
 //
-// Signed releases (docs/launcher.md "Self-update"): the signing step on Om's PC picks the release version (the commit
+// Signed releases (docs/ops/launcher.md "Self-update"): the signing step on Om's PC picks the release version (the commit
 // time), builds the bundle with it and signs version + sha256. Its record sits in .next/worker-signature.json (made by
 // scripts/build-artifact.sh) or worker/bundle/signature.json (committed). When a record's version gives exactly the
 // signed sha256 from this release's files, that bundle and its signature are served; otherwise the unsigned bundle (code

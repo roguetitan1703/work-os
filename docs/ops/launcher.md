@@ -123,7 +123,7 @@ closes it (`ttl` after 30 minutes: reconnect at once; `closed`: the owner was re
 data travels on it: on `jobs` the worker polls `GET /api/worker/jobs` at once. While it is up the worker polls only
 every 5 minutes, and sends status every 2 minutes only while a session it started runs or job results wait; otherwise
 only when what it reports changed (at least every 30 minutes). The server treats a connected computer as online and
-its last report as current. Details: docs/multi-user.md "As built: phase 5 push".
+its last report as current. Details: docs/ops/multi-user.md "As built: phase 5 push".
 
 ## Activity counts
 
@@ -162,7 +162,7 @@ Work OS records which sessions, subagents, models, projects and days used a pers
 
 ## Claude area and Start flow (Om's side)
 
-- `/claude` (tabs Now, Queue, Setup via `?tab=`): Now has a summary line, a compact Needs you list (3 shown, tap to reply) and the named Sessions list grouped by computer (`lib/data/claude-overview.ts`), with Stop behind a confirm and Remove with Undo.
+- `/claude` (tabs Sessions and Set up via `?tab=`; the Queue tab went with the Claude items): Sessions has a summary line, a compact Needs you list (3 shown, tap to reply) and the named Sessions list grouped by computer (`lib/data/claude-overview.ts`), with Stop behind a confirm and Remove with Undo.
 - Start Claude is one component (`components/start-claude.tsx`, mounted in the app layout): `?start=1` picks a project, `?start=<projectId>` opens the confirm modal (computer, folder, first message). With no linked folder it offers "Link and start" for a same-repo suggestion, or a folder search that links and starts.
 
 ## Turbo mode (clone, link, start)

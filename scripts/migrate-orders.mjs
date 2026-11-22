@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Step 1 (docs/flows/step-1.md section 2): each organization's existing "Claude Code boilerplate" note becomes its
+// Step 1 (docs/archive/step-1.md section 2): each organization's existing "Claude Code boilerplate" note becomes its
 // organization Orders (the standing rules every AI reads first in start_work).
 //
 //   node scripts/migrate-orders.mjs --db <database>           dry run: says what it would change

@@ -5,7 +5,7 @@ import { hint, isQuiet, pageUsers, type Topic } from './live';
 import { requestContext } from './request-context';
 import { readable, readableFilter, type Readable } from './visibility';
 
-// The one door to the data (docs/multi-user.md, "One door for data"). Every data function takes the caller's scope
+// The one door to the data (docs/ops/multi-user.md, "One door for data"). Every data function takes the caller's scope
 // ({ userId, orgId }) and reads and writes through scoped(scope), which adds the organization and the visibility rule
 // to every query and stamps them on every insert:
 //
@@ -306,7 +306,7 @@ function placedAfter(prop: string, a: unknown[]): Document[] {
 
 /**
  * Does a task write touch what the Claude page shows (a task given to Claude: the `claude` mark)? Then its readers get
- * a 'claude' hint as well as 'tasks'. Other task edits do not refresh open Claude pages (docs/cpu.md "Multi-user":
+ * a 'claude' hint as well as 'tasks'. Other task edits do not refresh open Claude pages (docs/ops/cpu.md "Multi-user":
  * every teammate's edit used to refresh every open Claude page). A delete may remove a marked task, so it counts.
  */
 function touchesClaudeMark(prop: string, a: unknown[]): boolean {

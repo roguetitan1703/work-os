@@ -6,7 +6,7 @@ import { collections } from './db';
 import * as projects from './data/projects';
 import type { Project, ProjectStatus, Visibility } from './types';
 
-// Work OS as an OAuth CLIENT of Delpat OS (docs/auth.md "Linking Delpat OS"): each person links their own Delpat OS
+// Work OS as an OAuth CLIENT of Delpat OS (docs/ops/auth.md "Linking Delpat OS"): each person links their own Delpat OS
 // account once (authorization code + PKCE S256 + state, client_secret_post, scope `mcp`), and Work OS then reads that
 // person's projects through Delpat OS's MCP as them, to import one into Work OS. Hidden unless DELPAT_OS_CLIENT_ID and
 // DELPAT_OS_CLIENT_SECRET are set.
@@ -211,7 +211,7 @@ async function tokenCall(params: Record<string, string>): Promise<{ ok: true; t:
 /**
  * Tells Delpat OS to revoke a refresh token (RFC 7009) when its metadata offers a revocation_endpoint. Best effort and
  * never waited for: a failure or a missing endpoint changes nothing (the link is deleted here either way).
- * Delpat OS offers none today, so unlinking in Work OS does not revoke at Delpat OS (docs/auth.md).
+ * Delpat OS offers none today, so unlinking in Work OS does not revoke at Delpat OS (docs/ops/auth.md).
  */
 function revokeUpstream(sealedRefresh: string | undefined, lid: string): void {
   if (!sealedRefresh) return;

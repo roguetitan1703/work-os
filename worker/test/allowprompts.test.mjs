@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createCore } from '../core.mjs';
 
-// The task dispatcher (docs/dispatcher.md) only sends a task to a worker that reports allowPrompts: true.
+// The task dispatcher (docs/ops/dispatcher.md) only sends a task to a worker that reports allowPrompts: true.
 function mk(config) {
   const reports = [];
   const core = createCore({

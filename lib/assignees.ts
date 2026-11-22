@@ -1,4 +1,4 @@
-// Assignees (docs/multi-user.md "Assignee"): who may be assigned to a task (a shared task can have several), and the
+// Assignees (docs/ops/multi-user.md "Assignee"): who may be assigned to a task (a shared task can have several), and the
 // picker options (task page on desktop and phone). No server imports: used by client components too.
 //
 // Stored as `assigneeIds: string[]` on the task. Tasks written before that carry a single `assigneeId`; reads take

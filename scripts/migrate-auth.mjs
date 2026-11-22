@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Moves Work OS from the single password to sign-in by user (docs/auth.md, phase 1 of docs/multi-user.md).
+// Moves Work OS from the single password to sign-in by user (docs/ops/auth.md, phase 1 of docs/ops/multi-user.md).
 //
 //   node scripts/migrate-auth.mjs --db <database>                 dry run: says what it would do, changes nothing
 //   node scripts/migrate-auth.mjs --db <database> --apply         does it

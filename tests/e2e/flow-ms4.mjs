@@ -1,4 +1,4 @@
-// Flow MS4 (docs/flows/step-1.md "Tests", rewritten for Identity step 6 and again on 21 Nov, when the personal inbox went): a message reaches the
+// Flow MS4 (docs/archive/step-1.md "Tests", rewritten for Identity step 6 and again on 21 Nov, when the personal inbox went): a message reaches the
 // one it is for labelled with who wrote it, its word and what to do with it. There is no Messages for you: an old row stored for a person (toUser)
 // shows on no page (Claude, Today, Menu; 1280 and 390, light and dark) and in no brief or message list. Seed profile: none.
 import { ME, MCP, B, SP, check, finish, launch, login, makeUser, mkKey, rawDb } from './lib.mjs';

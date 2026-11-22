@@ -1,3 +1,5 @@
+> 22 Nov 2026: built (19 to 21 Nov: H6 and H7, Identity). A message is read with `message_status`; the `inbox` tool and the project inbox are gone. Where this text differs, `docs/flows/agent-system.md` and `docs/HANDOVER.md` section 3 are right.
+
 # Live sessions, messaging, feedback and notes shelves (design, 18 Nov 2026)
 
 Om 18 Nov: cross-platform, cross-account messaging like Claude's own session messaging; every agent lives in a project;
@@ -127,7 +129,7 @@ Accepted (the design above is read with these):
    `/api/agent/wait`, one per session (lockfile). A hook cannot start Monitor or a background task. Timeout limits per
    surface: hand check.
 2. Hooks deliver sender, kind and id only, never the body (keeps the "ids and counts only" rule of for-you.ts and the
-   wait line); the session reads the body through `inbox`, where it is labelled. Ship, money and credentials stay
+   wait line); the session reads the body through `message_status`, where it is labelled. Ship, money and credentials stay
    server-side (a Need answered in the app), never a label the model reads.
 3. Keys: a hook-only key type (event and wait routes, never MCP: the MCP has mail send/delete); a project-scoped key
    for cloud environments.

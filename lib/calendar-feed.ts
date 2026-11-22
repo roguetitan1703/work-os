@@ -5,7 +5,7 @@ import { getDb } from './db';
 import { idIn } from './auth-server';
 import { seal, unseal } from './delpat-os';
 
-// The private calendar link (docs/calendar.md): one token per person per organization, stored hashed (like API keys),
+// The private calendar link (docs/ops/calendar.md): one token per person per organization, stored hashed (like API keys),
 // kept sealed so its owner can copy it again. The feed route finds the person by the token alone; everything it then reads goes through the door.
 
 type FeedDoc = { _id: string; orgId: string; userId: string; hash: string; /** The token sealed (AES-256-GCM, lib/delpat-os.ts seal: key from DELPAT_OS_TOKEN_KEY or derived from BETTER_AUTH_SECRET), so the owner can copy it again. */ sealed?: string; createdAt: Date; rotatedAt: Date | null };

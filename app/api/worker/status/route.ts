@@ -5,8 +5,8 @@ import { reportStatus } from '@/lib/data/launcher';
 import { settleDispatched } from '@/lib/data/dispatcher';
 import { flushQueuedAlerts } from '@/lib/alerts';
 
-// Worker heartbeat: job results and session states (docs/launcher.md). Device key checked in workerRoute.
-// A dead or failed session ends a dispatched task's run (docs/dispatcher.md), so settle after the report.
+// Worker heartbeat: job results and session states (docs/ops/launcher.md). Device key checked in workerRoute.
+// A dead or failed session ends a dispatched task's run (docs/ops/dispatcher.md), so settle after the report.
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 

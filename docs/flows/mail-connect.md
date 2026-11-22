@@ -19,7 +19,7 @@ the browser, or a log.
 Work OS is the client, Mailloom the authorization server. This is the same thing Work OS already does as a client of
 Delpat OS (`lib/delpat-os.ts`, `app/api/delpat-os/callback/route.ts`): reuse that file's shape (pending row keyed by
 state, verifier sealed next to it, `redirect: 'error'`, 10 s timeouts, 1 MB body cap, callback that checks the
-signed-in caller and redirects to Settings with one fixed word). Work OS's own OAuth server (docs/auth.md) is not
+signed-in caller and redirects to Settings with one fixed word). Work OS's own OAuth server (docs/ops/auth.md) is not
 involved. There is one client, so Mailloom registers it in env, not in a database or by dynamic registration.
 
 ### Mailloom endpoints (served under both `/` and `/mail`)
@@ -102,7 +102,7 @@ self-revoke in `routes/agent.ts`; `#/connect/:id` consent screen in the client; 
 
 **Work OS:** `lib/mail/connect.ts` (copy of the Delpat OS client shape), `app/api/mail/callback/route.ts`, start and
 disconnect actions, `mail-key.tsx` button, status and the folded paste box, member-removal hook, tests, env rows in
-docs/hosting.md and HANDOVER.
+docs/ops/hosting.md and HANDOVER.
 
 Both are access and security work: builder A, Mailloom first; a review subagent before each merge.
 

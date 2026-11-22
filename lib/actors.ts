@@ -1,4 +1,4 @@
-// Who did something (docs/multi-user.md, "Who did it"). Stored on tasks (createdBy, doneBy), history entries,
+// Who did something (docs/ops/multi-user.md, "Who did it"). Stored on tasks (createdBy, doneBy), history entries,
 // notes, trash and Claude item logs. Shared by the server and client components (no server imports).
 //
 //   { kind: 'user', userId }                  a person in the app
@@ -24,7 +24,7 @@ const VIA_LABEL: Record<SystemVia, string> = { 'mailloom-intake': 'Mailloom repo
 export const viaLabel = (a: Actor): string | null => (a.kind === 'system' && a.via && Object.hasOwn(VIA_LABEL, a.via) ? VIA_LABEL[a.via] : null);
 
 /**
- * Who wrote a piece of task text (docs/dispatcher.md "Whose words count"): stored with the text (titleBy,
+ * Who wrote a piece of task text (docs/ops/dispatcher.md "Whose words count"): stored with the text (titleBy,
  * descriptionBy, blockedReasonBy, tagsBy, and `by` on each checklist item and link). Usually the actor that wrote it;
  * text taken from a Discord message is the message author's, who may not be a member at all; 'unknown' when older
  * history cannot tell (a recurring task's copy keeps that).

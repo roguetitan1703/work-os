@@ -1,4 +1,4 @@
-// Flow R1 (docs/flows/plan-1-3.md slice 5, "results and review"): an agent closing code, data or client work gets a review
+// Flow R1 (docs/archive/plan-1-3.md slice 5, "results and review"): an agent closing code, data or client work gets a review
 // Need to the task's owner instead of Done; check and report work, and a person, still finish directly.
 //   - every path to Done for an agent is gated: update_task, log_progress, an apply_changes op (update_task, complete_task),
 //     complete_task, hand_in (and the dispatcher's agent, which uses the same calls);

@@ -1,4 +1,4 @@
-// "Open in Claude Code" / "Open in Claude Desktop" on a task, and Settings › AI tools (docs/connect.md).
+// "Open in Claude Code" / "Open in Claude Desktop" on a task, and Settings › AI tools (docs/ops/connect.md).
 // The worker is played over the real worker API (device key); nothing is launched: the job the worker would get is asserted.
 // If the Claude Code CLI is installed, the Claude Code snippet is also run for real against this server (isolated config dir).
 import { randomUUID, randomBytes } from 'node:crypto';
