@@ -1,4 +1,4 @@
-// Sign-in by user (docs/auth.md): password and wrong password, two-factor (app code and backup code), password reset
+// Sign-in by user (docs/ops/auth.md): password and wrong password, two-factor (app code and backup code), password reset
 // by email (read from MAIL_CAPTURE_DIR) revoking old sessions, invitations (Settings › Members, accept as a new user,
 // used and forged links), another organization's invitations out of reach, API keys recorded as their user, a revoked
 // key refused, Better Auth endpoints outside the allowlist 404, and every page and API route refusing a request with

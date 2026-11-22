@@ -1,4 +1,4 @@
-// Flow MS1 (docs/flows/step-1.md "Tests", rewritten for Identity step 6: messages are to sessions and people, not project inboxes):
+// Flow MS1 (docs/archive/step-1.md "Tests", rewritten for Identity step 6: messages are to sessions and people, not project inboxes):
 // send_message needs `to` (a session of yours by id or name, or a person); the answer says who is on the receiving end; a session that was
 // here earlier says "off, last active 3 h ago; it gets this when it starts" (never "present now" for an off row); the session's next
 // start_work lists what is unread for it and no other session has it; `word` is set by the server from how the call came in (an argument

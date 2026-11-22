@@ -1,6 +1,6 @@
 import { appBaseUrl } from './auth';
 
-// Constants of the OAuth sign-in for MCP clients (docs/auth.md "Connecting Claude with OAuth"). No server-only here:
+// Constants of the OAuth sign-in for MCP clients (docs/ops/auth.md "Connecting Claude with OAuth"). No server-only here:
 // pages and the well-known routes read them too.
 
 /** The one scope: act as the signed-in person in the organization they approved (what a Claude chat key does). */

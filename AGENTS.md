@@ -12,7 +12,11 @@ for the same things. Reuse `components/ui/*` and the shared phone pieces in docs
 UI done, look at it by eye at 390 px and 1280 px (light and dark) next to what surrounds it, and say in the report what
 you looked at.
 
-A user-facing feature adds one What's new entry to `lib/whats-new.ts` in the same change (docs/HANDOVER.md section 8,
-"What's new").
+Docs (the map is docs/README.md): docs/OVERVIEW.md is the entry point, one line per feature and workflow with links;
+docs/HANDOVER.md is the reference, one section per feature (how it is built, its files and rules); docs/flows/ holds the
+few step-by-step paths; docs/ops/ the how-tos for running Work OS; docs/archive/ records that are never updated. Every
+change updates its feature's HANDOVER section, and its flow file if it has one, in the same commit. A change that adds
+or removes a feature or workflow also updates its line in docs/OVERVIEW.md. A user-facing change also adds one What's new
+entry to `lib/whats-new.ts` (docs/HANDOVER.md section 8, "What's new"). The reviewer checks all of this.
 
 Agent-facing text (lib/mcp/docs.ts, MCP answers, worker hooks) uses the Words in docs/HANDOVER.md section 3; `npm run check:words` must pass.

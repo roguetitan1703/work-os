@@ -15,7 +15,7 @@ import { memberNames } from '../people';
 import { completeTask, createTask, getTask, logChange } from './tasks';
 import type { Priority } from '../types';
 
-// The project's State (docs/flows/step-1.md section 1): Now (one goal), Next (ordered), Later (one line each, with what it
+// The project's State (docs/archive/step-1.md section 1): Now (one goal), Next (ordered), Later (one line each, with what it
 // waits on), Decisions (append-only), Where (per machine) and a version bumped on every write. One document per project
 // (`_id` = the project id) stamped with the project's placement, so the door shows it to the project's readers only
 // (and lib/data/projects.ts setProjectPlacement moves it with the project).

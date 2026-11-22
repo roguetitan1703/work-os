@@ -1,4 +1,4 @@
-// Flow N1 (docs/flows/plan-1-3.md slice 4, "Needs"): an agent asks one person one thing.
+// Flow N1 (docs/archive/plan-1-3.md slice 4, "Needs"): an agent asks one person one thing.
 //   - the ask shows under "Needs you" on Today (desktop and phone) and the task shows "Needs <name>: <ask>" in place of its percent;
 //   - exactly one alert per Need (inbox), even across overlapping flushes and cron runs; a second open Need of the same kind
 //     on the same task replaces the first (and the first's alert is not sent twice);

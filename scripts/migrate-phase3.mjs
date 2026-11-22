@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Phase 3 of docs/multi-user.md: what was built into the code becomes data. Everything goes to the first organization
+// Phase 3 of docs/ops/multi-user.md: what was built into the code becomes data. Everything goes to the first organization
 // and its owner, whose it was:
 //
 //   timetable, routine, review     schedule:<owner's id>   the old weekday timetable, the "Fiverr Ritual" routine card,

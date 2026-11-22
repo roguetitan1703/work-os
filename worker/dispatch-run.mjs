@@ -1,4 +1,4 @@
-// A dispatched run's credentials (docs/dispatcher.md "Run keys"). The dispatcher starts Claude Code on a task whose text can come
+// A dispatched run's credentials (docs/ops/dispatcher.md "Run keys"). The dispatcher starts Claude Code on a task whose text can come
 // from a teammate, so the run never gets its person's own Work OS credential:
 //   - the worker asks the server for a run key (wdr_, POST /api/worker/run-key) just before a dispatched start or resume
 //     (runFor), and refuses to start one without it;

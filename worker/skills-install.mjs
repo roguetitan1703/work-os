@@ -1,5 +1,5 @@
 // The Work OS skills (slash commands such as /transfer and /declutter) that the worker installs into Claude Code beside
-// the hooks (docs/setup-pc.md step 3). Sources: worker/skills/<name>/SKILL.md, carried in the download and the signed
+// the hooks (docs/ops/setup-pc.md step 3). Sources: worker/skills/<name>/SKILL.md, carried in the download and the signed
 // bundle. Each installed folder ~/.claude/skills/<name>/ holds a `.work-os-managed` file with its version; only folders
 // with that file are ever replaced or removed. A folder of the same name without it is the person's own skill: it is
 // left alone until they ask for it to be replaced (`hooks install --adopt <name>`; the old folder is kept in the worker's

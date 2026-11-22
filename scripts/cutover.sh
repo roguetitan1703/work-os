@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The one-time cut-over from single-user Work OS to multi-user (docs/hosting.md "Cut-over"). Runs the steps in order,
+# The one-time cut-over from single-user Work OS to multi-user (docs/ops/hosting.md "Cut-over"). Runs the steps in order,
 # stops at the first error. A dry run unless --apply.
 #
 # On the server it is installed root-owned as /usr/local/sbin/work-os-cutover (next to work-os-env.sh and
@@ -38,7 +38,7 @@
 #
 # The steps are idempotent: running one again changes nothing that is already done.
 set -euo pipefail
-# Node 22 for Work OS only (docs/hosting.md section 2); the box's own node may be another version.
+# Node 22 for Work OS only (docs/ops/hosting.md section 2); the box's own node may be another version.
 [ -x "${WORK_OS_NODE:-/opt/work-os/node}/bin/node" ] && export PATH="${WORK_OS_NODE:-/opt/work-os/node}/bin:$PATH"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -f "$HERE/work-os-env.sh" ]; then
@@ -77,7 +77,7 @@ done
 [ -f "$APP_DIR/scripts/migrate-auth.mjs" ] || { echo "no Work OS release at $APP_DIR (--app-dir)" >&2; exit 2; }
 if [ "$(id -u)" = 0 ]; then
   id "$APP_USER" >/dev/null 2>&1 || { echo "user $APP_USER does not exist (--app-user)" >&2; exit 2; }
-  [ "$SKIP_BACKUP" = 1 ] || id "$BACKUP_USER" >/dev/null 2>&1 || { echo "user $BACKUP_USER does not exist (--backup-user; docs/hosting.md section 11)" >&2; exit 2; }
+  [ "$SKIP_BACKUP" = 1 ] || id "$BACKUP_USER" >/dev/null 2>&1 || { echo "user $BACKUP_USER does not exist (--backup-user; docs/ops/hosting.md section 11)" >&2; exit 2; }
 fi
 [ -z "$ENV_FILE" ] || load_env "$ENV_FILE"
 [ -n "$BASE" ] || BASE="http://127.0.0.1:${WORK_OS_PORT:-3100}"
@@ -138,7 +138,7 @@ if want 2; then
 fi
 
 # Steps 3 and 4 need the organization that step 2 makes: in a dry run on a database from before step 2 they can only
-# say so (rehearse the whole chain with --apply on a restored copy: docs/hosting.md "Cut-over").
+# say so (rehearse the whole chain with --apply on a restored copy: docs/ops/hosting.md "Cut-over").
 org_exists() {
   (cd "$APP_DIR" && as_app node -e "
     const { MongoClient } = require('mongodb');
@@ -216,7 +216,7 @@ if [ "$STOPPED" = 1 ] && [ "$STARTED" = 0 ]; then CURRENT="restart"; step "$CURR
 echo
 if [ "$APPLY" = 1 ]; then
   echo "Cut-over steps $FROM-$TO done."
-  echo "Next (docs/hosting.md): Om opens \$APP_URL/login → Forgot password?, signs in, makes a Claude chat key, re-adds his computers."
+  echo "Next (docs/ops/hosting.md): Om opens \$APP_URL/login → Forgot password?, signs in, makes a Claude chat key, re-adds his computers."
 else
   echo "Dry run finished: nothing was changed."
 fi

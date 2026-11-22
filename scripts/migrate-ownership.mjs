@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Phase 2 of docs/multi-user.md: gives every document an organization and an owner, so the scoped door (lib/scope.ts)
+// Phase 2 of docs/ops/multi-user.md: gives every document an organization and an owner, so the scoped door (lib/scope.ts)
 // can serve it. Everything from before belongs to the first organization and its owner (Om):
 //
 //   projects                      private to Om (visibility 'private'); Om shares them one by one from the app

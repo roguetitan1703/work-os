@@ -1,4 +1,4 @@
-// Cut-over rehearsal, part 3 (docs/hosting.md "Rehearsal"): after scripts/cutover.sh --apply on the database that
+// Cut-over rehearsal, part 3 (docs/ops/hosting.md "Rehearsal"): after scripts/cutover.sh --apply on the database that
 // seed-legacy.mjs filled, checks that the migrated owner can get in and finds the old work, through the NEW app:
 //   - /api/live answers "ok"
 //   - "Forgot password?" mails a link to OWNER_EMAIL; the link sets a password; the owner signs in

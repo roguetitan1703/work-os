@@ -8,7 +8,7 @@ import { InputError, NotFoundError } from './errors';
 import { requestContext } from '../request-context';
 import { withProjectPlan } from '../orders-plan';
 
-// Orders: standing rules served to every AI that starts work on a project (docs/flows/step-1.md section 2). Three layers,
+// Orders: standing rules served to every AI that starts work on a project (docs/archive/step-1.md section 2). Three layers,
 // each a note carrying the `orders` field:
 //   org      the organization's rules (the "Claude Code boilerplate" note, once its owner marks it): set by an owner of the
 //            organization; the note must be shared with everyone, or the people it steers could not read it

@@ -1,4 +1,4 @@
-// Subtasks (docs/subtasks.md) over MCP and in the app: a parent and its subtasks in one call (add_task, apply_changes),
+// Subtasks (docs/archive/subtasks.md) over MCP and in the app: a parent and its subtasks in one call (add_task, apply_changes),
 // the rollup (count and progress: Done counts 100, Dropped is left out), one level only, a subtask stays in its parent's
 // project, moving the parent moves them (and who sees them), completing a parent leaves open subtasks open over MCP,
 // trash and restore go together, a recurring parent's next occurrence gets the subtasks again, rename and detach. Then

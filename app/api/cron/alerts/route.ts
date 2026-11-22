@@ -11,7 +11,7 @@ import { runWithRequestContext } from '@/lib/request-context';
 // Alert check, called every 15 minutes by the server's work-os-alerts.timer (deploy/cron-alerts.sh; was cron-job.org).
 //   GET/POST /api/cron/alerts   Authorization: Bearer <CRON_SECRET>   (the header only: a secret in the URL ends up in logs)
 //   ?dry=1  → report what would be sent, send nothing
-// Runs once per person (every membership), each with their own tasks, settings and devices (docs/multi-user.md).
+// Runs once per person (every membership), each with their own tasks, settings and devices (docs/ops/multi-user.md).
 // First, once for all organizations: the next copy of each recurring task that is due (lib/data/tasks.ts spawnDueOccurrences).
 // Excluded from proxy.ts; this secret is the only way in.
 
@@ -55,7 +55,7 @@ async function handle(req: Request) {
     // Each person in their own timezone ("today", alert hours, quiet hours).
     const tz = await timezoneOf(s).catch(() => undefined);
     const r = await runWithRequestContext({ userId: s.userId, tz }, async () => {
-      // Task dispatcher: requeue a claim that never started, stop one whose computer went silent (docs/dispatcher.md). Their alerts go out in the run below.
+      // Task dispatcher: requeue a claim that never started, stop one whose computer went silent (docs/ops/dispatcher.md). Their alerts go out in the run below.
       if (!dry) await reconcileDispatched(s, at).catch(e => console.error('[dispatcher] reconcile failed', e instanceof Error ? e.message : e));
       return runAlerts(s, { dryRun: dry, baseUrl, now: at }).catch(e => ({ quiet: false, dryRun: dry, sent: 0, messages: [] as string[], items: [] as AlertItem[], error: e instanceof Error ? e.message : String(e) }));
     });

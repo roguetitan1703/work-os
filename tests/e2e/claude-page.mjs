@@ -186,7 +186,7 @@ async function suite(vp) {
   await p.goto(B + '/claude?tab=setup'); await p.waitForSelector('[data-device="Om-PC"]');
   const dev = p.locator('[data-device="Om-PC"]');
   check(T('Setup lists the computer with online dot and last seen'), (await dev.locator('[aria-label="online"]').count()) === 1 && /seen/.test(await dev.innerText()));
-  // The worker line (docs/launcher.md "Self-update"): its version, then how it updates.
+  // The worker line (docs/ops/launcher.md "Self-update"): its version, then how it updates.
   {
     const before = (await db.collection('devices').findOne({ _id: D1 }))?.worker;
     const served = await (await fetch(B + '/worker/latest.json')).json();

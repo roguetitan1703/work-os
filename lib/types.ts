@@ -21,7 +21,7 @@ export const OPEN_STATUSES: Status[] = ['Not Started', 'In Progress', 'Blocked']
 export type { Actor, TextAuthor };
 
 /**
- * Who sees a project and everything in it (docs/multi-user.md): the organization ('org'), only its owner ('private'),
+ * Who sees a project and everything in it (docs/ops/multi-user.md): the organization ('org'), only its owner ('private'),
  * or the people on its list ('members': `sharedWith`, which always holds the owner).
  */
 export const VISIBILITIES = ['org', 'private', 'members'] as const;
@@ -29,7 +29,7 @@ export const VisibilitySchema = z.enum(VISIBILITIES);
 export type Visibility = z.infer<typeof VisibilitySchema>;
 
 /**
- * What kind of result a task produces (docs/flows/plan-1-3.md slice 5). An agent closing a code, data or client task gets a
+ * What kind of result a task produces (docs/archive/plan-1-3.md slice 5). An agent closing a code, data or client task gets a
  * review Need to the task's owner instead of Done; check and report finish by themselves. None set = report.
  */
 export const RESULT_KINDS = ['code', 'data', 'client', 'check', 'report'] as const;
@@ -108,7 +108,7 @@ export type Task = {
   descriptionBy?: TextAuthor;
   blockedReasonBy?: TextAuthor;
   tagsBy?: TextAuthor;
-  /** Given to Claude (docs/dispatcher.md). Read-only here: only the UI actions and the dispatcher write it. */
+  /** Given to Claude (docs/ops/dispatcher.md). Read-only here: only the UI actions and the dispatcher write it. */
   claude?: TaskClaude;
   /** The person it belongs to; with no project (or a private one) only they see it. */
   ownerId: string;
@@ -118,7 +118,7 @@ export type Task = {
   sharedWith?: string[];
   /** Members who do it and get its alerts; each must be able to see the task (lib/assignees.ts canBeAssigned). */
   assigneeIds: string[];
-  /** The task this one is a subtask of (docs/subtasks.md; one level only), with its number and title for the rows. */
+  /** The task this one is a subtask of (docs/archive/subtasks.md; one level only), with its number and title for the rows. */
   parentId: string | null;
   parentRef?: number;
   parentTitle?: string;
@@ -403,11 +403,11 @@ export const TaskInputSchema = z.object({
   recurrence: RecurrenceSchema.nullable().optional(),
   /** The kind of result (code, data, client, check, report); null clears. An agent cannot loosen code / data / client. */
   resultKind: z.enum(RESULT_KINDS).nullable().optional(),
-  /** Who does it: members' user ids or emails, or 'me'; the whole list (null or [] clears). Shared tasks only (docs/multi-user.md phase 4). */
+  /** Who does it: members' user ids or emails, or 'me'; the whole list (null or [] clears). Shared tasks only (docs/ops/multi-user.md phase 4). */
   assignees: z.array(z.string().trim().min(1).max(200)).max(MAX_ASSIGNEES).nullable().optional(),
   /** One assignee: the same as assignees with one name (kept for older callers); null clears. */
   assignee: z.string().trim().min(1).max(200).nullable().optional(),
-  /** The task this one is a subtask of (a ref, "#12" or an id); null detaches. One level only (docs/subtasks.md). */
+  /** The task this one is a subtask of (a ref, "#12" or an id); null detaches. One level only (docs/archive/subtasks.md). */
   parent: z.union([z.number().int(), z.string().trim().min(1).max(100)]).nullable().optional(),
 });
 export type TaskInput = z.input<typeof TaskInputSchema>;

@@ -4,7 +4,7 @@ import { CHECKED, tools } from '@/lib/connect-tools';
 import { baseUrl } from './base-url';
 import { Dot } from './ui';
 
-/** Settings › AI tools: how to connect Claude Code, Cursor, Antigravity and ChatGPT to this server's MCP address (docs/connect.md). */
+/** Settings › AI tools: how to connect Claude Code, Cursor, Antigravity and ChatGPT to this server's MCP address (docs/ops/connect.md). */
 export async function AiTools() {
   const mcpUrl = `${await baseUrl()}/api/mcp`;
   return (

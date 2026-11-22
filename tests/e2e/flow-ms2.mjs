@@ -1,4 +1,4 @@
-// Flow MS2 (docs/flows/step-1.md "Tests", rewritten for Identity step 6: messages are sent to the session by id; and on 20 Nov: a session
+// Flow MS2 (docs/archive/step-1.md "Tests", rewritten for Identity step 6: messages are sent to the session by id; and on 20 Nov: a session
 // without the Work OS hook gets a short unread line on every answer until it reads them): ids and counts only, never body text, not for
 // its own messages; message_status with no id reads them; a reply goes back in the same thread and its sender hears of it. Seed profile: none.
 import { MCP, check, finish, mkKey, rawDb } from './lib.mjs';

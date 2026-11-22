@@ -1,4 +1,4 @@
-// Cut-over rehearsal, part 1 (docs/hosting.md "Rehearsal"): fills an empty throwaway database the way the single-user
+// Cut-over rehearsal, part 1 (docs/ops/hosting.md "Rehearsal"): fills an empty throwaway database the way the single-user
 // Work OS (before phase 1, commit f9ae24e) did, through that old app's own MCP and alert cron where it can, and with
 // direct inserts in the old shapes for what has no MCP tool (reviews, routine logs, old keys and computers, push
 // devices, settings). Run it against the OLD app only, on a throwaway database.

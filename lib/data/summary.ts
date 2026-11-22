@@ -95,7 +95,7 @@ export type BriefTask = {
   assignee?: string;
   /** The owner sent it back from review: their line, first (do it before anything else). */
   sentBack?: { line: string; by: string; writtenBy?: string };
-  /** A subtask: "#12 Parent title". A parent: "3 of 8 done" (docs/subtasks.md). */
+  /** A subtask: "#12 Parent title". A parent: "3 of 8 done" (docs/archive/subtasks.md). */
   parent?: string;
   subtasks?: string;
   url?: string;

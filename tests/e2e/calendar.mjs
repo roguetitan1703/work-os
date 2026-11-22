@@ -1,4 +1,4 @@
-// The personal calendar feed (docs/calendar.md): Settings > Connections > Calendar makes a private ICS link; /api/calendar/<token>.ics
+// The personal calendar feed (docs/ops/calendar.md): Settings > Connections > Calendar makes a private ICS link; /api/calendar/<token>.ics
 // lists only the person's own open tasks with a date that they may see. Checks: valid ICS (all-day events, a span, escaping,
 // folding, no notes/comments/checklist), scope (someone else's private task, a members-only project they are not on, another
 // organization, done/archived/undated/others' tasks), no cookies and no session, headers, rotate and turn off kill the old

@@ -1,7 +1,7 @@
 import { addDays } from './dates';
 import type { Status } from './types';
 
-// The calendar feed's text (docs/calendar.md): RFC 5545, all-day events only. Pure: no database, no clock.
+// The calendar feed's text (docs/ops/calendar.md): RFC 5545, all-day events only. Pure: no database, no clock.
 
 export type FeedTask = { id: string; ref: number; title: string; status: Status; priority: 'P1' | 'P2' | 'P3' | 'P4'; due: string | null; start: string | null; updatedAt: Date };
 

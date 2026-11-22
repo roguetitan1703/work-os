@@ -12,7 +12,7 @@ const quiet = cn(btn, 'border border-border bg-card text-foreground hover:bg-mut
 const loud = cn(btn, 'bg-foreground text-background hover:bg-foreground/90');
 
 /**
- * Settings › Connections › Calendar (docs/calendar.md): a private link that Google Calendar, Outlook or Apple Calendar
+ * Settings › Connections › Calendar (docs/ops/calendar.md): a private link that Google Calendar, Outlook or Apple Calendar
  * subscribe to. The link is read back from the server for its owner (kept sealed there), so Copy works any time.
  */
 export function CalendarSection({ initialOn }: { initialOn: boolean }) {

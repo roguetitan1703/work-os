@@ -1,4 +1,4 @@
-// Flow S1 (docs/flows/step-1.md "Tests"): two clients start work on the same project and get the same State version and
+// Flow S1 (docs/archive/step-1.md "Tests"): two clients start work on the same project and get the same State version and
 // Orders, and both show as present with their client names; an unknown remote returns candidates; the answer comes in the
 // documented order; the session id and the header both identify a session; access to a project's State and presence.
 // Seed profile: none.

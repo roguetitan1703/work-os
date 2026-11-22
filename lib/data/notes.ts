@@ -487,7 +487,7 @@ async function guardOrders(s: Scope, actor: Actor, ids: (string | null | undefin
     }
   }
 }
-/** The dispatcher names its sessions "<Project> · worker · #<ref>" (docs/dispatcher.md). */
+/** The dispatcher names its sessions "<Project> · worker · #<ref>" (docs/ops/dispatcher.md). */
 const DISPATCHED_LABEL = /·\s*worker\s*·\s*#\d+/i;
 
 /**

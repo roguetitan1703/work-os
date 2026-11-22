@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { callerFromHeaders } from '@/lib/caller';
 import { liveResponse } from '@/lib/live-stream';
 
-// Push stream for open pages (docs/multi-user.md "As built: phase 5 push"). The session cookie says who; the caller
+// Push stream for open pages (docs/ops/multi-user.md "As built: phase 5 push"). The session cookie says who; the caller
 // must still be a member of the session's organization (callerFromHeaders checks the membership). The stream carries
 // only "refresh <topic>" hints for that person; the page then fetches itself through the normal, checked path.
 export const runtime = 'nodejs';

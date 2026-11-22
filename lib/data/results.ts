@@ -6,7 +6,7 @@ import { RATINGS, type HandInResult, type Rating, type ResultKind, type Task } f
 import { InputError, NotFoundError } from './errors';
 import { getTask, updateTask } from './tasks';
 
-// Results and review (docs/flows/plan-1-3.md slice 5, flows R1 and R2). hand_in is how an agent says what it did: Work OS
+// Results and review (docs/archive/plan-1-3.md slice 5, flows R1 and R2). hand_in is how an agent says what it did: Work OS
 // keeps links and lines, never files. The gate that sends code, data and client work to review sits in updateTask
 // (lib/data/tasks.ts), so it holds for every path to Done, not only this one.
 

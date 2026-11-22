@@ -5,7 +5,7 @@ import { readFeedToken, removeFeed, setFeed } from '@/lib/calendar-feed';
 import { requireCaller } from '@/lib/caller';
 import { baseUrl } from './base-url';
 
-// Settings › Connections › Calendar (docs/calendar.md). A signed-in person (session, never an API key) makes, replaces or
+// Settings › Connections › Calendar (docs/ops/calendar.md). A signed-in person (session, never an API key) makes, replaces or
 // turns off their own calendar link. The link is kept sealed and read back only by its owner.
 
 type R = { ok: true; url: string | null } | { ok: false; error: string };

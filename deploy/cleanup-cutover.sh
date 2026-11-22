@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # After the cut-over, once Om has signed in and checked his data: removes what the move left behind on the server and
-# in the cluster (docs/hosting.md section 10). Installed root-owned as /usr/local/sbin/work-os-cleanup-cutover.
+# in the cluster (docs/ops/hosting.md section 10). Installed root-owned as /usr/local/sbin/work-os-cleanup-cutover.
 #
 #   sudo work-os-cleanup-cutover            list what would go (nothing changes)
 #   sudo work-os-cleanup-cutover --apply    delete it

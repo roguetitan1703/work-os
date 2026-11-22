@@ -70,7 +70,7 @@ export type ClaudeOverview = {
   summary: SessionSummary;
   hasComputers: boolean;
   activity: { computers: ComputerActivity[]; total: ActivityTotal };
-  /** Sessions that were open before a computer restarted (docs/launcher.md). */
+  /** Sessions that were open before a computer restarted (docs/ops/launcher.md). */
   reopen: ReopenPrompt[];
 };
 

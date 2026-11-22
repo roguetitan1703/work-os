@@ -1,4 +1,4 @@
-// Counts database operations per request type (docs/cpu.md). Not part of the default suites:
+// Counts database operations per request type (docs/ops/cpu.md). Not part of the default suites:
 //   E2E_EXTRA='cpu|cpu-probe.mjs|base|plain' SKIP_BUILD=1 bash tests/e2e/run.sh cpu
 // Turns the mongod profiler on for the throwaway database and counts what each request caused. Seed profile: base.
 import { B, MCP, check, db, mkDevice, finish, launch, login } from './lib.mjs';

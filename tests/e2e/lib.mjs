@@ -26,7 +26,7 @@ await mc.connect();
 /** The test database without the fixture help below (the tenancy suite writes exact documents with it). */
 export const rawDb = mc.db(DBNAME);
 
-// ---- fixtures belong to the owner (docs/multi-user.md phase 2) ----
+// ---- fixtures belong to the owner (docs/ops/multi-user.md phase 2) ----
 // Suites insert fixtures directly. Every document needs an organization and an owner to be seen through the app's
 // scoped door, so `db` fills in what a fixture leaves out: the owner's organization, owner (or recipient), visibility
 // 'org', and the per-person / per-organization settings and counter ids ('dispatcher' → 'dispatcher:<owner id>',
@@ -107,7 +107,7 @@ export const db = new Proxy(rawDb, {
   },
 });
 
-// ---- who the suites are (docs/auth.md): one owner, their organization and a Claude chat key, made by seed.mjs on
+// ---- who the suites are (docs/ops/auth.md): one owner, their organization and a Claude chat key, made by seed.mjs on
 // every emptied database (makeIdentity) and kept in a small state file so the suite process can read the key ----
 export const EMAIL = 'e2e-owner@example.test';
 export const PW = 'testpass-e2e-123';

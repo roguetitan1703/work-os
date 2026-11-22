@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Builds the server's .next on a PC, for when GitHub Actions cannot (docs/hosting.md section 7, "Building on a PC").
+# Builds the server's .next on a PC, for when GitHub Actions cannot (docs/ops/hosting.md section 7, "Building on a PC").
 # Runs in WSL (Ubuntu) as root, so the build can sit at the server's release path: Next links .next/node_modules to
 # the node_modules of the folder it was built in, and on the server that folder is /srv/work-os/releases/<commit>.
 # Makes the same tarball as .github/workflows/server-build.yml; the server deploys it with
 #   sudo work-os-deploy <commit> --artifact work-os-<commit12>.tar.gz
 # A build made here is x86_64: that is fine, .next holds no native code (deploy.sh checks), and the server installs
 # its own native packages with npm ci.
-# The worker release signature (docs/launcher.md "Self-update") is made before, in a separate step on Windows with
+# The worker release signature (docs/ops/launcher.md "Self-update") is made before, in a separate step on Windows with
 # Windows node, which reads the key from DPAPI; this build never sees the key (npm ci and next build run code from the
 # release's dependencies as root here). The build only picks the signature file up from <out dir>, checks that it fits
 # this commit's worker, and puts it into the tarball as .next/worker-signature.json. Without it the build warns and

@@ -1,4 +1,4 @@
-// The timetable, routine, review questions and help that were built into Work OS before docs/multi-user.md phase 3
+// The timetable, routine, review questions and help that were built into Work OS before docs/ops/multi-user.md phase 3
 // made them each person's own data. scripts/migrate-phase3.mjs copies them to the first organization's owner, whose
 // they were. Generated from lib/schedule.ts, lib/modes.ts (modes and block colours), lib/ritual-mode-map.ts, components/fiverr-ritual-card.tsx,
 // the review page and app/(app)/settings/help.tsx as they were at commit aef0056.

@@ -1,4 +1,4 @@
-// Delpat OS import (docs/auth.md "Linking Delpat OS"): Work OS is an OAuth client of a stub Delpat OS (metadata,
+// Delpat OS import (docs/ops/auth.md "Linking Delpat OS"): Work OS is an OAuth client of a stub Delpat OS (metadata,
 // authorize, token with refresh, MCP tools/list, list_projects, get_project; run here on the discord stub's port, server
 // mode delpat). Covers: link and unlink; state and PKCE enforced; import fills the fields (client missing and null);
 // the duplicate guard; one member's link never used for another (also across organizations and against a copied

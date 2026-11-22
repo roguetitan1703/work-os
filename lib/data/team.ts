@@ -2,7 +2,7 @@ import 'server-only';
 import { orgWide, scoped, forUser } from '../scope';
 import { takeOffLists } from './projects';
 
-// What leaving an organization does to its work data (docs/multi-user.md "As built: phase 4"). lib/members.ts removes
+// What leaving an organization does to its work data (docs/ops/multi-user.md "As built: phase 4"). lib/members.ts removes
 // the membership, sessions and keys (Better Auth's collections); this is the part in Work OS's own collections, through
 // the door. The person's private things (private projects, tasks, notes, settings, inbox) are kept untouched: nobody
 // else can reach them, and they come back if the person is invited again.

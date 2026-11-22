@@ -14,7 +14,7 @@ import { getClient, getDb } from './db';
 import { mailErrorMessage, sendMail, takeMailSlot } from './mail';
 import { ACCESS_TOKEN_SECONDS, OAUTH_SCOPES, REFRESH_TOKEN_SECONDS, mcpResource } from './oauth-config';
 
-// Better Auth (docs/auth.md): users, sessions, organizations, two-factor, passkeys and API keys, stored by its MongoDB
+// Better Auth (docs/ops/auth.md): users, sessions, organizations, two-factor, passkeys and API keys, stored by its MongoDB
 // adapter in its own collections of the app database (user, session, account, verification, organization, member,
 // invitation, twoFactor, passkey, apikey, rateLimit). Its HTTP endpoints are served at /api/auth/* through an
 // allowlist (app/api/auth/[...all]/route.ts); everything else calls `auth.api.*` on the server.
@@ -163,7 +163,7 @@ function build(db: Db, client: MongoClient) {
         rateLimit: { enabled: false },
         keyExpiration: { defaultExpiresIn: null },
       }),
-      // OAuth sign-in for MCP clients (docs/auth.md). Opaque tokens only (no JWT plugin): every request is checked against the
+      // OAuth sign-in for MCP clients (docs/ops/auth.md). Opaque tokens only (no JWT plugin): every request is checked against the
       // database, so a revoked token stops at once. Tokens are bound to the organization approved at the consent screen
       // (referenceId); lib/oauth.ts checks them on /api/mcp. Dynamic client registration is open but trimmed, validated and
       // rate-limited in app/api/auth/[...all]/route.ts.

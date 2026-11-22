@@ -1,5 +1,5 @@
 #!/bin/bash
-# The only thing the reel-booking SSH key can run (forced command in ~ubuntu/.ssh/authorized_keys, docs/hosting.md
+# The only thing the reel-booking SSH key can run (forced command in ~ubuntu/.ssh/authorized_keys, docs/ops/hosting.md
 # 9a). Installed root-owned as /usr/local/sbin/work-os-reel-ssh. SSH_ORIGINAL_COMMAND is untrusted: it is split
 # into words here (no shell parsing, no globbing) and must be exactly one of
 #

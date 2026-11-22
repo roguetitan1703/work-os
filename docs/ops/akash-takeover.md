@@ -1,13 +1,13 @@
 # Handover to Akash: Claude sessions, turbo mode, chat porting
 
-As of 2026-10-31. This covers the four Work OS asks you sent Om on 2026-10-30, what was built for each, why it was built that way, and what is still open. Read `docs/HANDOVER.md` for the whole product, and `docs/launcher.md` for the worker contract.
+As of 2026-10-31. This covers the four Work OS asks you sent Om on 2026-10-30, what was built for each, why it was built that way, and what is still open. Read `docs/HANDOVER.md` for the whole product, and `docs/ops/launcher.md` for the worker contract.
 
 ## Your asks and where they stand
 
 | Ask | State | Where |
 | --- | --- | --- |
-| Open Claude Code in VS Code directly | Built, merged, in build `c3b39ed` | `worker/vscode.mjs`, `docs/launcher.md` "VS Code and Reopen after a restart" |
-| Turbo mode (repo not on the PC: clone, link, start) | Built, merged, in build `c3b39ed` | `worker/clone.mjs`, `lib/data/turbo.ts`, `docs/launcher.md` "Turbo mode" |
+| Open Claude Code in VS Code directly | Built, merged, in build `c3b39ed` | `worker/vscode.mjs`, `docs/ops/launcher.md` "VS Code and Reopen after a restart" |
+| Turbo mode (repo not on the PC: clone, link, start) | Built, merged, in build `c3b39ed` | `worker/clone.mjs`, `lib/data/turbo.ts`, `docs/ops/launcher.md` "Turbo mode" |
 | Recurring tasks | Already existed; now easier to find | `lib/quick-parse.ts` (`parseRepeat`), `lib/recurrence-options.ts` |
 | Chat storage (move context between chats and tools) | Designed, not built | Section below |
 | Why did my session show "failed"? | The reason now shows in plain words on desktop too | `lib/worker-errors.ts` |
@@ -127,13 +127,13 @@ journalctl -u work-os --since "-1h" | grep -iE "killed|oom|memory|Started"
   2. Upload the tarball and its `.sha256` to `manual-builds`.
   3. On the box, run `sudo work-os-update`.
 
-  `work-os-update` only takes a build of the exact `origin/master` commit, so commit nothing to master after building (`docs/hosting.md` section 7).
+  `work-os-update` only takes a build of the exact `origin/master` commit, so commit nothing to master after building (`docs/ops/hosting.md` section 7).
 - **Security reviews.** Anything touching auth, permissions, tokens, or what the server can make a PC run gets a security review before merge.
 - **What's next** is ordered in `WORK-STATE.md`. Anything found along the way goes in its Later list.
 
 ## Your next steps
 
-1. Read this file and `docs/launcher.md` (Turbo mode; VS Code and Reopen).
+1. Read this file and `docs/ops/launcher.md` (Turbo mode; VS Code and Reopen).
 2. Once the box runs `c3b39ed`, try each of these once:
    - Turbo Start on a project that is not on your PC.
    - Open in VS Code, ticking "do not ask again".

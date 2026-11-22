@@ -6,10 +6,10 @@ import type { Caller } from './caller';
 import { closeDevice } from './live';
 import { endDeviceSessions } from './agent-sessions';
 
-// Device keys for the session launcher's worker (docs/launcher.md). A separate kind of credential from Work OS API
+// Device keys for the session launcher's worker (docs/ops/launcher.md). A separate kind of credential from Work OS API
 // keys (wos_…, lib/api-keys.ts): accepted ONLY by /api/worker/*, and those routes accept nothing else. Only the
 // SHA-256 is stored; the key is shown once. A device is created by a signed-in user and records them (ownerId) and
-// their organization (orgId); devices from before sign-in by user have neither and must be re-linked (docs/auth.md).
+// their organization (orgId); devices from before sign-in by user have neither and must be re-linked (docs/ops/auth.md).
 //
 // Format: "wkr_" + 32 random bytes, base64url (47 chars).
 

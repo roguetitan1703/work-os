@@ -115,7 +115,7 @@ export function isOverdue(t: Pick<Task, 'due' | 'status'>, today: string = today
 }
 
 /**
- * Who gets a task's alerts and notices (docs/multi-user.md "Inbox, push, alerts"): its assignees who can see the task
+ * Who gets a task's alerts and notices (docs/ops/multi-user.md "Inbox, push, alerts"): its assignees who can see the task
  * (canBeAssigned), else its owner.
  */
 export function recipientsOf(t: Pick<TaskDoc, 'ownerId' | 'visibility' | 'sharedWith' | 'assigneeIds' | 'assigneeId'>): string[] {
@@ -132,7 +132,7 @@ export function recipientFilter(userId: string): Filter<TaskDoc> {
   return { $or: [{ $and: [assignedTo(userId), readableFilter(userId)] }, { ownerId: userId, $or: [unassigned(), ...cannotSee] }] } as Filter<TaskDoc>;
 }
 
-// ── Assignees (docs/multi-user.md phase 4) ─────────────────────────────────
+// ── Assignees (docs/ops/multi-user.md phase 4) ─────────────────────────────────
 // Every assignee must be able to see the task (canBeAssigned in lib/assignees.ts, the one rule): any member on a task
 // shared with everyone, the people on the list of a project shared with chosen people, only the owner on a private
 // task. A task can have several. Anyone else is refused, and a task moved to where an assignee cannot see it loses them.
@@ -440,7 +440,7 @@ export async function readableRows(c: Collections, s: Scope, docs: ActivityDoc[]
   return { rows, names };
 }
 
-// ── Subtasks (docs/subtasks.md) ─────────────────────────────────────────────
+// ── Subtasks (docs/archive/subtasks.md) ─────────────────────────────────────────────
 // A subtask is a real task with parentId, one level deep (a subtask has no subtasks). It lives where its parent lives:
 // the same project, so the same visibility and list; moving the parent moves it. The parent's progress is the average
 // of its subtasks' (Done counts 100, Dropped is left out), recomputed whenever one changes (rollUp).
@@ -583,7 +583,7 @@ async function insertTask(
   const now = new Date();
   const today = todayStr();
   const mode = (await canonicalMode(s, data.mode)) ?? null;
-  // A subtask goes in its parent's project (docs/subtasks.md).
+  // A subtask goes in its parent's project (docs/archive/subtasks.md).
   const parent = data.parent != null ? await parentFor(c, data.parent) : null;
   const project = parent ? await parentProject(c, s, parent, data.project) : data.project ? await projectFor(c, s, data.project, actor, opts.createProject) : null;
   const status: Status = data.status ?? (data.blockedReason?.trim() ? 'Blocked' : 'Not Started');
@@ -666,7 +666,7 @@ type UpdateOpts = {
 };
 
 /**
- * The one door to a task's changes. Decision 4 (docs/flows/plan-1-3.md slice 5) lives here, in the data layer, so every path
+ * The one door to a task's changes. Decision 4 (docs/archive/plan-1-3.md slice 5) lives here, in the data layer, so every path
  * to Done goes through it: update_task, log_progress, an apply_changes op, complete_task, hand_in and the dispatcher's
  * agent all end in a call with status Done. An AGENT closing a task whose result kind is code, data or client does not
  * close it: its other changes are made, a review Need goes to the task's owner and the task stays open. A person closes
@@ -738,7 +738,7 @@ async function updateTaskCore(s: Scope, key: string | number, data: ReturnType<t
     apply('resultKind', data.resultKind ?? null);
   }
 
-  // Subtasks (docs/subtasks.md): `parent` puts the task under another (it joins that task's project) or, null, takes it
+  // Subtasks (docs/archive/subtasks.md): `parent` puts the task under another (it joins that task's project) or, null, takes it
   // out. A subtask can't change project on its own: it moves with its parent.
   let parentSet: TaskDoc | null | undefined;
   if (data.parent !== undefined) {
@@ -836,7 +836,7 @@ async function updateTaskCore(s: Scope, key: string | number, data: ReturnType<t
   if (changes.tags) set.tagsBy = actor;
 
   const hasChanges = Object.keys(changes).length > 0;
-  // Someone else changing what Claude reads takes the task back from Claude (docs/dispatcher.md). It happens before the
+  // Someone else changing what Claude reads takes the task back from Claude (docs/ops/dispatcher.md). It happens before the
   // write: a claim needs the mark still queued, so no session can start on the edited text.
   const readsChanged = !!(changes.title || changes.description || (set.checklist && newChecklistText(cur.checklist, set.checklist)) || opts.note?.trim());
   const tookBack = readsChanged ? await takeBackOnEdit(s, cur, actor) : false;
@@ -914,7 +914,7 @@ async function updateTaskCore(s: Scope, key: string | number, data: ReturnType<t
   // A task the Discord bot recorded: its reply there says Done (lib/discord/buttons.ts, best effort).
   if (statusChanged && status === 'Done' && cur.status !== 'Done' && next.source?.kind === 'discord' && next.source.replyId) void import('../discord/buttons').then(m => m.settleDone(next));
   if (tookBack) next.claude = (await c.tasks.findOne({ _id: cur._id }, { projection: { claude: 1 } }))?.claude ?? next.claude;
-  // A task someone gave to Claude: Done or Blocked ends the dispatcher's run (docs/dispatcher.md).
+  // A task someone gave to Claude: Done or Blocked ends the dispatcher's run (docs/ops/dispatcher.md).
   if (statusChanged && next.claude?.state === 'running') await onTaskChanged(c, s, next);
   // A recurring task's next copy is not made here: it comes on the calendar (spawnDueOccurrences, the alerts cron).
   return toTask(next);
@@ -1001,7 +1001,7 @@ export async function trashTask(
     throw new InputError(`#${cur.ref} is "${cur.title}", not "${opts.expectTitle}". Nothing deleted.`);
   }
   const at = new Date();
-  // A parent takes its subtasks with it; restoring it brings them back (docs/subtasks.md).
+  // A parent takes its subtasks with it; restoring it brings them back (docs/archive/subtasks.md).
   const kids = await c.tasks.find({ parentId: cur._id }).toArray();
   for (const k of kids) await trashOne(c, s, k, actor, at, opts.reason, cur._id);
   await trashOne(c, s, cur, actor, at, opts.reason);
@@ -1300,7 +1300,7 @@ export async function spawnDueOccurrences(orgIds: string[], opts: { now?: Date; 
   for (const orgId of new Set(orgIds)) {
     if (budget <= 0) break;
     // Org-wide read of the candidates only; each copy is then made through its owner's own scope. A series whose owner
-    // has left the organization stops (their private things are kept as they are, docs/multi-user.md).
+    // has left the organization stops (their private things are kept as they are, docs/ops/multi-user.md).
     const org = await orgWide(orgId);
     const owners = Object.keys(await memberNames(orgId));
     const heads = await org.tasks.find({ ...SERIES_HEAD, ownerId: { $in: owners }, $or: [{ due: null }, { due: { $lte: latest } }] }).sort({ due: 1, ref: 1 }).limit(budget).toArray();
@@ -1421,7 +1421,7 @@ export type TaskFilter = {
   sort?: TaskSort;
   /**
    * For task lists sent to the browser (Today, Tasks): without description, links and source, which no row shows (they
-   * come back empty). Today sends every open task the person can see, so they were most of its page (docs/cpu.md).
+   * come back empty). Today sends every open task the person can see, so they were most of its page (docs/ops/cpu.md).
    */
   forList?: boolean;
 };
@@ -1542,7 +1542,7 @@ export type TaskDetail = {
   activity: Activity[];
   dependencies: Task[];
   dependents: Task[];
-  /** Subtasks (docs/subtasks.md): the parent of a subtask, the subtasks of a parent (open first). */
+  /** Subtasks (docs/archive/subtasks.md): the parent of a subtask, the subtasks of a parent (open first). */
   parent: Task | null;
   subtasks: Task[];
 };

@@ -3,7 +3,7 @@ import { SafeError } from './auth';
 import { getAuth } from './auth-server';
 import type { Agent, Caller } from './caller';
 
-// Work OS API keys (docs/auth.md), stored by Better Auth's API key plugin (`apikey` collection; only a hash is kept,
+// Work OS API keys (docs/ops/auth.md), stored by Better Auth's API key plugin (`apikey` collection; only a hash is kept,
 // the key is shown once). Each key belongs to the user who made it, carries the organization it acts in and which
 // agent it is for, in its metadata:
 //   agent 'claude'       the claude.ai connector: what the old MCP_TOKEN was (no Claude Code rules)

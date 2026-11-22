@@ -143,7 +143,7 @@ await runAssertSuite('dispatcher-ui', async () => {
     assert.ok(!(await st(14)).claude, '14 taken back from the page');
     console.log(label, 'claude tasks section ok');
 
-    // 6. Set up: the three steps in order, step 3 = the switch and a 1 to 4 stepper (docs/dispatcher.md)
+    // 6. Set up: the three steps in order, step 3 = the switch and a 1 to 4 stepper (docs/ops/dispatcher.md)
     const states = async () => p.locator('[data-step]').evaluateAll(es => es.map(e => e.getAttribute('data-step-state')));
     const statusDoc = { $set: { area: 'status', orgId: ME.orgId, userId: ME.userId, lastMcpAt: new Date() } };
     const devSeen = v => db.collection('devices').updateOne({ _id: dev }, { $set: { lastSeenAt: v } });

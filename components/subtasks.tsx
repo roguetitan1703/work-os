@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils';
 import { ResponsiveSheet } from './responsive-sheet';
 import { useApp } from './app-context';
 
-// Subtasks on rows and cards (docs/subtasks.md): a parent shows "3/8", a subtask shows the task it is part of.
+// Subtasks on rows and cards (docs/archive/subtasks.md): a parent shows "3/8", a subtask shows the task it is part of.
 
 /** "3/8": a parent's subtasks done of those counted (Dropped ones are left out). */
 export function SubtaskChip({ task, className }: { task: Pick<Task, 'subtaskCount'>; className?: string }) {

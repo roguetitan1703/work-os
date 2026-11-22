@@ -14,7 +14,7 @@ import { releaseMember } from './data/team';
 import { closeFor } from './live';
 import { dropMailKey } from './mail/connect';
 
-// Members and invitations (docs/auth.md, docs/multi-user.md phase 4). Sign-up is closed: a person gets an account by
+// Members and invitations (docs/ops/auth.md, docs/ops/multi-user.md phase 4). Sign-up is closed: a person gets an account by
 // accepting an invitation. An invitation link is /accept-invitation/<invitation id>?t=<secret>; only the SHA-256 of the
 // secret is stored (invitation.tokenHash), so the id alone (which owners and admins can list) never accepts anything.
 // Settings › Members: owners and admins invite, cancel invitations, change roles and remove members.
@@ -26,7 +26,7 @@ export type MemberRow = { userId: string; name: string; email: string; role: Rol
 export type InviteRow = { id: string; email: string; role: Role; expiresAt: string };
 
 /**
- * The one switch for invitation links (docs/auth.md). On (the default, `INVITE_LINK_TO_INVITER` unset or `1`): the
+ * The one switch for invitation links (docs/ops/auth.md). On (the default, `INVITE_LINK_TO_INVITER` unset or `1`): the
  * person who invites also sees the link, to copy when email is off or slow. Off (`0`): the link only goes by email, so an
  * owner or admin can never open an invitee's link and claim their account; inviting then needs working email.
  */
@@ -163,7 +163,7 @@ export async function changeRole(c: Caller, userId: string, roleIn: string): Pro
 /**
  * Removes a member and ends their access to this organization at once: the membership, their sessions open in it, their
  * Claude keys for it, their computers there and the tasks they gave to Claude (lib/data/team.ts). Their private things
- * are kept as they are, reachable by nobody (docs/multi-user.md phase 4). You cannot remove yourself here.
+ * are kept as they are, reachable by nobody (docs/ops/multi-user.md phase 4). You cannot remove yourself here.
  */
 export async function removeMember(c: Caller, userId: string): Promise<{ computers: number; keys: number; claims: number; unassigned: number }> {
   const m = await memberOf(c.orgId, String(userId ?? ''));

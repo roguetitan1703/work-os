@@ -11,7 +11,7 @@ function safeNext(next: unknown): string {
 }
 
 /**
- * An app asking to connect (OAuth, docs/auth.md) sends the person here with its authorization request, signed by Better
+ * An app asking to connect (OAuth, docs/ops/auth.md) sends the person here with its authorization request, signed by Better
  * Auth (`sig`). After sign-in the request starts again at the authorize endpoint, now with a session, which goes on to
  * the consent screen. Only that fixed same-site path is built; the app's own parameters ride along as plain query text
  * (the endpoint validates them all again, and signs nothing it does not check).
@@ -26,7 +26,7 @@ function oauthNext(sp: Record<string, string | string[] | undefined>): string | 
   return '/api/auth/oauth2/authorize?' + q.toString();
 }
 
-// Sign-in (docs/auth.md): email and password, then a code when the authenticator app is on; passkeys; forgot password.
+// Sign-in (docs/ops/auth.md): email and password, then a code when the authenticator app is on; passkeys; forgot password.
 // All of it is Better Auth from the browser (lib/auth-client.ts). proxy.ts lets exactly /login through.
 export default async function LoginPage({ searchParams }: Props) {
   const sp = await searchParams;

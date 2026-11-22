@@ -2,7 +2,7 @@ import 'server-only';
 import { createHash } from 'node:crypto';
 import { getDb } from './db';
 
-// Per-account limit on failed sign-in steps (docs/auth.md), next to Better Auth's per-IP limits: a password,
+// Per-account limit on failed sign-in steps (docs/ops/auth.md), next to Better Auth's per-IP limits: a password,
 // authenticator or backup code that fails 10 times in 15 minutes for one account locks that step for that account
 // until the window passes. Counts only failures; a success clears them. Passkey sign-in is never limited.
 // Stored in `authLimits` (TTL 1 h), so every server instance sees the same count. Not switched off by AUTH_RATE_LIMIT.

@@ -1,4 +1,4 @@
-// Request log (docs/usage-log.md): proxy auth unchanged on every path (self-authenticating APIs still bypass the
+// Request log (docs/ops/usage-log.md): proxy auth unchanged on every path (self-authenticating APIs still bypass the
 // session check, guarded ones still guarded), known requests counted with the right kind/caller/route, no ids,
 // query strings or keys stored, static files not counted, and Settings › Usage at 390 and 1280. Seed profile: none.
 import { B, MCP, CRON, SP, db, state, check, finish, launch, login, mkDevice, mkWos, overflow, okO, sessionCookies } from './lib.mjs';

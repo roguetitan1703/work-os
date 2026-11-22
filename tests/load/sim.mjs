@@ -165,7 +165,7 @@ const idleCpuPerHour = ((idleStats.cpuSec / idleStats.wallSec) * 3600);
 // Time-based costs (pings, the idle part of workers) ran for MINUTES real minutes, not HOURS: count them per real hour.
 const dayCpuNet = dayStats.cpuSec - (idleStats.cpuSec / idleStats.wallSec) * dayStats.wallSec;
 const cpuPerUserHour = Math.max(0, dayCpuNet) / userHours;
-const T3_FACTOR = 1.5; // a t3.small vCPU against this PC's core (assumption; docs/cpu.md)
+const T3_FACTOR = 1.5; // a t3.small vCPU against this PC's core (assumption; docs/ops/cpu.md)
 const busyHourCpu = (cpuPerUserHour * people.length + idleCpuPerHour) * T3_FACTOR;
 const baselinePerHour = 0.2 * 2 * 3600; // t3.small earns 24 credits an hour = 0.4 vCPU = 1440 CPU-seconds an hour
 const dayCpu = busyHourCpu * HOURS + idleCpuPerHour * T3_FACTOR * (24 - HOURS);

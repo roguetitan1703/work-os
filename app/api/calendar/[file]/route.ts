@@ -3,7 +3,7 @@ import { feedOwner, recordMiss } from '@/lib/calendar-feed';
 import { feedTasks } from '@/lib/data/calendar';
 import { timezoneOf } from '@/lib/profile';
 
-// The calendar feed (docs/calendar.md): GET /api/calendar/<token>.ics. The token is the only credential: no session, no
+// The calendar feed (docs/ops/calendar.md): GET /api/calendar/<token>.ics. The token is the only credential: no session, no
 // cookies. proxy.ts lets it through untouched. Anything wrong with it (malformed, unknown, rotated, turned off, the
 // person left) answers the same bare 404.
 

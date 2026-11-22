@@ -1,6 +1,6 @@
 # /etc/work-os/backup-env: read by work-os-backup.service only (root-readable, group workos-backup, 0640). The app's
 # own env file (/etc/work-os/env) is never loaded by the backup, and this one never by the app.
-# docs/hosting.md section 11. Names only here; fill in on the server.
+# docs/ops/hosting.md section 11. Names only here; fill in on the server.
 
 # The database server. A read-only Atlas user (read on workos) is enough and safer than the app's.
 MONGODB_URI=
