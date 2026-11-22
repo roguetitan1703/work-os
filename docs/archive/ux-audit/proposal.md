@@ -1,3 +1,5 @@
+> Record, 22 Nov 2026: stage 3 of the UX audit, a proposal. Not updated; what was built is in `docs/HANDOVER.md`.
+
 # Work OS UX audit, stage 3: proposed structure
 
 Status: proposal, awaiting Om's approval. Nothing is built.

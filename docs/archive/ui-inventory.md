@@ -1,3 +1,5 @@
+> Record, 22 Nov 2026: a read-only measurement of the UI at commit `90f76fa`, input to the navigation redesign. Not updated; the UI as it is now is in `docs/HANDOVER.md` section 8.
+
 # Work OS: UI inventory (navigation input)
 
 Measured from the code at commit `90f76fa` (master). Read-only pass, nothing in the app was changed.

@@ -1,3 +1,5 @@
+> Record, 22 Nov 2026: a review of 18 Nov, checked against the code of that day. Not updated; the current text is `docs/flows/agent-system.md`.
+
 # Fable review, 18 Nov 2026
 
 Reviewed: docs/flows/agent-system.md. I checked its claims against the code, the hook installed on Om's PC and the

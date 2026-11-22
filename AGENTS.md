@@ -14,9 +14,11 @@ you looked at.
 
 Docs (the map is docs/README.md): docs/OVERVIEW.md is the entry point, one line per feature and workflow with links;
 docs/HANDOVER.md is the reference, one section per feature (how it is built, its files and rules); docs/flows/ holds the
-few step-by-step paths; docs/ops/ the how-tos for running Work OS; docs/archive/ records that are never updated. Every
-change updates its feature's HANDOVER section, and its flow file if it has one, in the same commit. A change that adds
-or removes a feature or workflow also updates its line in docs/OVERVIEW.md. A user-facing change also adds one What's new
-entry to `lib/whats-new.ts` (docs/HANDOVER.md section 8, "What's new"). The reviewer checks all of this.
+few step-by-step paths; docs/ops/ the how-tos for running Work OS; docs/archive/ records that are never updated. A change
+updates its feature's HANDOVER section when it changes what the section says, and its flow file if it has one, in the
+same commit. A change to deploy, hosting, setup, the worker or the launcher updates its docs/ops/ file (ops/launcher.md
+also holds live feature text, Usage and Turbo). A change that adds or removes a feature or workflow also updates its line
+in docs/OVERVIEW.md. A user-facing change also adds one What's new entry to `lib/whats-new.ts` (docs/HANDOVER.md
+section 8, "What's new"). `npm run check:links` must pass. The reviewer checks all of this.
 
 Agent-facing text (lib/mcp/docs.ts, MCP answers, worker hooks) uses the Words in docs/HANDOVER.md section 3; `npm run check:words` must pass.

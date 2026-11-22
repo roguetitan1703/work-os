@@ -13,7 +13,7 @@ A project's **State** is its Now (one goal), Next, Later (found, not chased), De
 ## The people's app
 
 - **Today** (laptop and phone): Needs for you, Projects now (each project's goal and next step), your schedule, tasks due, What's new. H8.
-- **Tasks and projects:** priorities, due dates, repeats, assignees, subtasks, modes, shared and private projects; a task says why it exists and where it sits in the plan. H2; subtasks `docs/archive/subtasks.md`.
+- **Tasks and projects:** priorities, due dates, repeats, assignees, subtasks, modes, shared and private projects; a task says why it exists and where it sits in the plan. H2; subtasks in H2 (Subtasks).
 - **Project page:** opens on its Now, who holds it, sessions working on it, Needs, the State card (Next, Later, Parked, Decisions), Info (code folders, context warning, Discord bug channel). H2, H3, H8.
 - **Notes:** Notion-style pages on shelves, share link, the organization's Orders at the top. H5.
 - **Needs:** one line each with a recommended answer; answer in the app, on Discord or by typing. H3, H8.
@@ -56,7 +56,7 @@ The worker is a small program on each PC. It reports sessions and folders, start
 ## Discord, mail and intake
 
 - **Discord:** read channels, slash commands, task posts, a bug channel per project, the track emoji, Connect Discord, and Discord alerts. H6.
-- **Mail:** Claude's `mail_*` tools through each person's own Mailloom key; a person sends, an agent only drafts. H3; `docs/flows/mail-connect.md`.
+- **Mail:** Claude's `mail_*` tools through each person's own Mailloom key; mail outside the caller's own mail domain is drafted and a person sends it; inside the own domain the agent sends (up to 100 an hour). H3; `docs/flows/mail-connect.md`.
 - **Mailloom intake:** problem reports become tasks in one project; update notices go to one Discord channel. H3.
 - **Calendar and schedule:** `docs/ops/calendar.md`.
 

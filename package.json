@@ -9,6 +9,7 @@
     "lint": "eslint",
     "prebuild": "node tests/scope-check.mjs && node --experimental-strip-types --no-warnings tests/words-check.mjs",
     "check:scope": "node tests/scope-check.mjs",
+    "check:links": "node scripts/check-links.mjs",
     "check:words": "node --experimental-strip-types --no-warnings tests/words-check.mjs",
     "check:ui": "node tests/ui-check.mjs",
     "check:notes-match": "node --experimental-strip-types --no-warnings tests/notes-match-check.mjs",

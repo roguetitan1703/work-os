@@ -7,4 +7,4 @@
 - `archive/`: records that are never updated (old designs, reviews, audits, the 14 Nov product draft). Each starts with a dated line saying what replaced it.
 - `skills/transfer-alias.md`: a skill text to paste, not a doc.
 
-**Upkeep.** Every change updates its feature's HANDOVER section, and its flow file if it has one, in the same commit. A change that adds or removes a feature or workflow also updates its line in OVERVIEW.md. A user-facing change adds a What's new entry (`lib/whats-new.ts`). The reviewer checks this. Nothing in `archive/` is edited.
+**Upkeep.** A change updates its feature's HANDOVER section when it changes what the section says, and its flow file if it has one, in the same commit. A change to deploy, hosting, setup, the worker or the launcher updates its `ops/` file (`ops/launcher.md` also holds live feature text, Usage and Turbo). A change that adds or removes a feature or workflow also updates its line in OVERVIEW.md. A user-facing change adds a What's new entry (`lib/whats-new.ts`). `npm run check:links` must pass. The reviewer checks this. Nothing in `archive/` is edited.

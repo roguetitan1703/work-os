@@ -1,3 +1,5 @@
+> Record, 22 Nov 2026: the Later backlog as of 18 Nov. Not maintained; the live Later list is in the Work OS State.
+
 # Later backlog kept in WORK-STATE.md before 18 Nov 2026 (archive)
 
 These 169 lines lived only in the repo's WORK-STATE.md, never in Work OS. From 18 Nov WORK-STATE.md is a copy of the Work OS State written by the Work OS hook, so they moved here. Not maintained: a Declutter pass moves the ones still true into Work OS (State Later or tasks) and drops the rest, then this file is deleted.
