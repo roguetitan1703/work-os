@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 312. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 321. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -93,7 +93,8 @@ Copy of the Work OS state, version 312. WORK-STATE.md is a copy of the State, wr
 - Pull to refresh broken in the PWA (Om, 21 Nov): the code (components/mobile/pull-to-refresh.tsx) hasn't changed since 14 Oct; the code read found no cause; a touch test on master (slot S, iPhone and Pixel) is running. — waits on the slot S touch test; Om's phone OS
 - tests/e2e/pull-refresh.mjs checks the spinner at 450 ms against a 500 ms hold: tight, may flake on a slow machine; widen if it does (merged 7fa6d88, 21 Nov).
 - Identity pieces E2/F: tests that shorten AGENT_TOKEN_TTL_MS must use 10 min or more (the hook refuses a renew within 5 min of the last). Hook and server must deploy together: an old server costs each fresh start 2 of its 30 sign-ins per hour. — waits on piece E and the real-use test
+- Three identity bugs from the 22 Nov live test (note 287f5b8dc4): A legacy identities have empty ccSessions; B hook-session-end doesn't record the end, rows stay 'on' (check whether Sessions shows them Working); C `claude -p` doesn't exit, likely a hook. Om: do later; thinker plans first, then a builder. — waits on Om picks the time
 
 ## Parked
 - 2 lines in Work OS: list_parked, or the project page.
-<!-- work-os-copy sha1:c0745f15801cdd545c1678dfe7b4b3e39d9d7c5a -->
+<!-- work-os-copy sha1:04d7cd5a0e07d23395a26101f8decd387bca8917 -->
