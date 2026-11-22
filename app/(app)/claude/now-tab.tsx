@@ -17,8 +17,6 @@ import { write } from './auto-refresh';
 import { dispatcherSettingsAction } from './dispatcher-actions';
 import { ClaudeTasksSection } from './claude-tasks';
 import { ReopenBanner } from './reopen-banner';
-import { MessagesForYou } from './messages-for-you';
-import type { MessageForYou } from '@/lib/data/messages';
 import type { Need } from '@/lib/data/needs';
 
 type Props = {
@@ -32,7 +30,6 @@ type Props = {
   hasComputers: boolean;
   claudeTasks: ClaudeTasks;
   reopen?: ReopenPrompt[];
-  messages?: MessageForYou[];
   /** Open Needs to the viewer by asking session id: a waiting row's Answer opens its Need in place. */
   asks?: Record<string, Need>;
 };
@@ -41,9 +38,7 @@ type Props = {
  * The Claude page's Sessions tab: one list of every session the person may see (their own computers' and the roster's,
  * merged in lib/session-item.ts), live first; then what finished today; Claude's tasks; older ended sessions folded.
  */
-export function SessionsTab({ view, filter: initialFilter, tz, openId, couldBeRunning, machines, hasComputers, claudeTasks, reopen = [], messages = [], asks }: Props) {
-  const [handled, setHandled] = useState<Record<string, true>>({}); // a message dealt with disappears at once; the server copy follows
-  const msgs = messages.filter(m => !handled[m.id]);
+export function SessionsTab({ view, filter: initialFilter, tz, openId, couldBeRunning, machines, hasComputers, claudeTasks, reopen = [], asks }: Props) {
   const [filter, setFilter] = useSessionFilter(initialFilter);
   const { live, finished, earlier, counts, more } = filterSessions(view, filter, openId);
   const summary = [counts.working && `${counts.working} working`, counts.waiting && `${counts.waiting} waiting`].filter(Boolean).join(' · ');
@@ -51,7 +46,6 @@ export function SessionsTab({ view, filter: initialFilter, tz, openId, couldBeRu
     <div className="space-y-5" data-section="workers">
       <SetupBanner hasComputers={hasComputers} enabled={claudeTasks.settings.enabled} hasNote={!!claudeTasks.settings.boilerplateNoteId} />
       <ReopenBanner prompts={reopen} />
-      {msgs.length > 0 && <MessagesForYou items={msgs} onDone={m => setHandled(h => ({ ...h, [m.id]: true }))} />}
       <CouldBeRunning list={couldBeRunning} />
       <div data-section="sessions">
         <Section label={summary ? `Sessions · ${summary}` : 'Sessions'} count={live.length}>

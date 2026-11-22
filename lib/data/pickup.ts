@@ -4,6 +4,7 @@ import { scoped, type Scope } from '../scope';
 import { busy } from './lanes';
 import { rowKey } from './presence';
 import { GONE_MIN, presenceState } from './presence-state';
+import { moveHolds, moveOwnedWork } from '../session-move';
 
 // Pickup and sweep (Lanes step 2, plan note 666b20a6e9). What a session holds when it stops (its Needs, its unread messages, the
 // Now hold, its held lines, what it is doing) is moved to the session that takes over:
@@ -30,36 +31,12 @@ export type MoveResult = ({ moved: true } & Moved) | { moved: false; reason: 'bu
 type Coll = Awaited<ReturnType<typeof scoped>>;
 
 /**
- * Moves the Needs and unread messages of one session to another (same person only; no other checks: the callers decide).
- * Needs: open and answered-and-not-yet-handed-over ones asked by `from` (its session id and its key), rewritten to `to`'s session
- * and key so that `to` is handed the answers and may withdraw them. Messages: those addressed to `from`'s key and not read by it,
- * readdressed to `to`'s key.
+ * Moves the Needs and unread messages of one session to another (same person only; no other checks: the callers decide): the shared
+ * move in lib/session-move.ts (Needs asked by or handed to `from`, unread messages, read mail marked read for `to`).
  */
 async function moveOwned(c: Coll, projectId: string, from: PresenceDoc, to: PresenceDoc): Promise<{ needs: number; messages: number }> {
-  if (from.userId !== to.userId) return { needs: 0, messages: 0 };
-  let needs = 0;
-  if (from.session && to.session) {
-    const q = {
-      projectId,
-      'from.actor.userId': from.userId,
-      'from.session': from.session,
-      ...(from.keyId ? { 'from.keyId': from.keyId } : { 'from.keyId': { $exists: false } }),
-      $or: [{ status: 'open' }, { status: 'answered', briefedAt: { $exists: false } }],
-    };
-    const set: Record<string, unknown> = { 'from.session': to.session };
-    const unset: Record<string, ''> = {};
-    if (to.keyId) set['from.keyId'] = to.keyId;
-    else unset['from.keyId'] = '';
-    const r = await c.needs.updateMany(q as never, { $set: set, ...(Object.keys(unset).length ? { $unset: unset } : {}) } as never);
-    needs = r.modifiedCount;
-  }
-  // Messages: addressed to A, unread by A (seenBy is the list of keys that read it), not sent by B (a message B sent to A stays as it is).
-  const fk = keyOf(from);
-  const tk = keyOf(to);
-  // Both forms of "unread by A": a seenBy list without A, or (messages from before per-session read state) none and the status still unread.
-  const unreadByA = [{ seenBy: { $exists: true, $nin: [fk] }, status: { $in: ['unread', 'seen'] } }, { seenBy: { $exists: false }, status: 'unread' }];
-  const r = await c.messages.updateMany({ projectId, toSids: fk, src: { $ne: tk }, $or: unreadByA } as never, { $set: { 'toSids.$[e]': tk } } as never, { arrayFilters: [{ e: fk }] } as never);
-  return { needs, messages: r.modifiedCount };
+  const r = await moveOwnedWork(c as never, projectId, from, to);
+  return { needs: r.needs, messages: r.messages };
 }
 
 /** A line's task ref the session says it is on (set_doing), resolved through the caller's door. */
@@ -86,25 +63,11 @@ export async function moveSession(s: Scope, projectId: string, from: PresenceDoc
   const at = new Date(now);
   // Now hold and held lines. A line whose task is the one `from` was on (and no other hold) passes too.
   const ref = await doingRef(c, from);
-  let lines = 0;
-  let nowMoved = false;
   const fresh = !o.handoverAt || now - o.handoverAt.getTime() < HOLD_MOVE_MAX_MS;
-  const hk = holdKey(from);
   const st = fresh ? await c.states.findOne({ _id: projectId }, { projection: { now: 1, next: 1, later: 1 } }) : null;
-  if (st) {
-    if (st.now?.hold?.key === hk) {
-      const r = await c.states.updateOne({ _id: projectId, 'now.hold.key': hk } as never, { $set: { 'now.hold': { key: holdKey(to), label: to.label ?? '', at } } } as never);
-      nowMoved = r.modifiedCount > 0;
-    }
-    const mine = (l: StateLine) => l.hold?.key === hk || (!l.hold && ref != null && l.ref === ref);
-    for (const list of ['next', 'later'] as const) {
-      for (const l of st[list] ?? []) {
-        if (!mine(l)) continue;
-        const r = await c.states.updateOne({ _id: projectId } as never, { $set: { [`${list}.$[l].hold`]: { key: holdKey(to), at } } } as never, { arrayFilters: [{ 'l.id': l.id }] } as never);
-        if (r.modifiedCount) lines++;
-      }
-    }
-  }
+  const held = await moveHolds(c as never, projectId, st as never, from, to, at, { ref, label: to.label ?? '' });
+  const lines = held.lines;
+  const nowMoved = held.now;
   // What it was doing goes with the work (unless the taking session is on something of its own).
   if (from.doing && same) {
     if (!to.doing) await c.presence.updateOne({ _id: to._id }, { $set: { doing: from.doing } });

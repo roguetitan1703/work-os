@@ -1,6 +1,6 @@
 // Stop hook: files changed since the session started and no save_state since: block once.
 import fs from 'node:fs';
-import { MAX_BRIEF, cut, deliverText, keepAck, postEvent, readMarker, sizeOf, statusHash, updateMarker, writeMarker } from './hook-lib.mjs';
+import { MAX_BRIEF, cut, elsewhereHere, deliverText, keepAck, postEvent, readMarker, sizeOf, statusHash, updateMarker, writeMarker } from './hook-lib.mjs';
 import { cleanResult, lastAssistantText as lastMainText, notAResult } from './hook-subagent-stop.mjs';
 
 /**
@@ -195,7 +195,7 @@ export function lastAssistantText(input) {
 }
 
 export const RELEASE_TEXT = 'You merged or released this turn and the State was not saved after it. Mark the Next lines it finished done (save_state done_next), add what you found to Later, then finish.';
-const RELEASE_CMD = /\bgit\s+(?:-C\s+\S+\s+)?merge(?![-\w])(?!\s+--(?:abort|quit))|\bgit\s+(?:-C\s+\S+\s+)?push\b[^\n;&|]*\b(?:master|main)\b|\bwork-os-deploy\b/;
+export const RELEASE_CMD = /\bgit\s+(?:-C\s+\S+\s+)?merge(?![-\w])(?!\s+--(?:abort|quit))|\bgit\s+(?:-C\s+\S+\s+)?push\b[^\n;&|]*\b(?:master|main)\b|\bwork-os-deploy\b/;
 
 /** Did this turn merge into the current branch, push to master or main, or run work-os-deploy, with no save_state or end_work after it? Reads the transcript from the turn's start (the last prompt of the person). */
 export function releasedUnsaved(input) {
@@ -262,6 +262,7 @@ async function decide(input) {
   // asked to save State for them (hooks review 13). The same-folder warning already told it to use a worktree.
   if (m.sharedFolder) return null;
   const cwd = input.cwd || process.cwd();
+  if (elsewhereHere(m, cwd)) return null; // C4: this folder is not the project's: its changes are not the project's State to save
   const now = statusHash(cwd);
   if (now === m.status) return null; // nothing changed since the start or the last save
   // A save the post-tool hook did not see (installed mid-session): a real tool call in the transcript, not the word

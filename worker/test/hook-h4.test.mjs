@@ -89,7 +89,7 @@ test('session start sends the protocol header and Where facts (head, dirty, work
   seen.length = 0;
   assert.ok(await startSid('h1'));
   assert.equal(seen[0].url, '/api/agent/start');
-  assert.equal(seen[0].hook, '4');
+  assert.equal(seen[0].hook, '5');
   const b = seen[0].body;
   assert.match(b.head, /^[0-9a-f]{7,}$/);
   assert.equal(b.dirty, true);
@@ -102,7 +102,7 @@ test('a short save answer: the hook fetches the copy with the kept token, sends 
   assert.match(out.hookSpecificOutput.additionalContext, /v9, committed/);
   assert.equal(posts().length, 1);
   assert.equal(posts()[0].auth, `Bearer ${TOKEN}`);
-  assert.equal(posts()[0].hook, '4');
+  assert.equal(posts()[0].hook, '5');
   assert.equal(posts()[0].body.where.branch, 'main');
   assert.match(posts()[0].body.where.head, /^[0-9a-f]{7,}$/);
   assert.match(fs.readFileSync(copyFile, 'utf8'), /^Copy of the Work OS state, version 9\./);
@@ -141,7 +141,7 @@ test('WORK_OS_KEY: the copy comes from get_state copy:true, with the protocol he
   } finally { delete process.env.WORK_OS_KEY; delete process.env.WORK_OS_URL; }
   assert.equal(posts().length, 0);
   const m = seen.find((s) => s.url === '/api/mcp');
-  assert.equal(m.hook, '4');
+  assert.equal(m.hook, '5');
   assert.equal(m.body.params.name, 'get_state');
   assert.deepEqual(m.body.params.arguments, { project: 'Demo', copy: true });
 });

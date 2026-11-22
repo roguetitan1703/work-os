@@ -7,7 +7,9 @@
 // computer (401 for its key and its tokens), a replaced key (old key and old tokens 401, new key works), a device whose
 // owner is no longer a member (401), every other credential (wos_ keys, X-API-Key, a session cookie, junk: 401), bad
 // bodies (400, 413), GET (405), the hourly limits (429 for a computer's new sessions and for one token's briefs), and the
-// token nowhere in the brief or the database. Seed profile: none.
+// token nowhere in the brief or the database. Also the session record (plan note db5bf91389, piece A): one session keeps one id
+// across project moves, unfiled to filed, /clear and a second sign-in; tokens are keys (two valid at once); elsewhere; old hooks and a foreign
+// remote; a merged old id is not revived; another computer ends the first one's rows. Seed profile: none.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -154,10 +156,10 @@ try {
   check('token: the same session brief again, no new token', r2.status === 200 && r2.json?.brief?.session === sid && !('token' in (r2.json ?? {})), `${r2.status} ${r2.text.slice(0, 160)}`);
   const r2b = await post(T1, {});
   check('token with no folder given: its own project', r2b.status === 200 && r2b.json?.brief?.project?.id === one, r2b.status);
-  const r3 = await post(T1, at('acme/agent-two'));
-  check('token for another project: 403', r3.status === 403 && !JSON.stringify(r3.json).includes('Agent Two'), `${r3.status} ${r3.text.slice(0, 160)}`);
-  const r3b = await post(T1, at('acme/x-secret'));
-  check("token at another organization's project: 403", r3b.status === 403, r3b.status);
+  const r3 = await post(T1, at('acme/agent-two'), { headers: { 'x-work-os-hook': '5' } });
+  check('token at the folder of a project that is not on this PC: no 403 and no switch: it stays on its project, elsewhere (the project is not named)', r3.status === 200 && r3.json?.brief?.project?.id === one && r3.json?.elsewhere === true && !JSON.stringify(r3.json).includes('Agent Two'), `${r3.status} ${r3.text.slice(0, 160)}`);
+  const r3b = await post(T1, at('acme/x-secret'), { headers: { 'x-work-os-hook': '5' } });
+  check("token at another organization's folder: no switch either, and nothing of that organization in the answer", r3b.status === 200 && r3b.json?.brief?.project?.id === one && !/X Secret/.test(r3b.text), r3b.status);
 
   // ---- projects the device key may not open ----
   const r4 = await post(pc1.key, at('acme/agent-two'));
@@ -271,6 +273,103 @@ try {
   const rDu = await post(pcP.key, at('acme/agent-one'));
   check('H15: a start with no ccSession is never marked and keeps its own label', rDu.status === 200 && !('dispatched' in (rDu.json ?? {})) && (await rawDb.collection('presence').findOne({ session: rDu.json?.brief?.session }))?.label === 'Agent One · Claude Code');
   await rawDb.collection('workerSessions').deleteOne({ _id: DCC });
+
+  // ---- the session record (plan note db5bf91389, A): one Claude Code session keeps one id ----
+  const H4 = { 'x-work-os-hook': '4' };
+  const H3 = { 'x-work-os-hook': '3' };
+  const uuid = () => crypto.randomUUID();
+  const pcI = await deviceOf(A, 'agent-pc-i');
+  const pcI2 = await deviceOf(A, 'agent-pc-i2');
+  await rawDb.collection('workerFolders').insertMany([folder(pcI, A, 'ifold1', 'acme/agent-one', one), folder(pcI, A, 'ifold2', 'acme/agent-two', two), folder(pcI2, A, 'ifold1', 'acme/agent-one', one), folder(pcI, A, 'ipar', 'acme/parent', null)]);
+  const ev4 = (tok, body) => fetch(B + '/api/agent/event', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${tok}` }, body: JSON.stringify(body) }).then(async r => ({ status: r.status, json: await r.json().catch(() => null) }));
+  const rowsOf = (sid_, extra = {}) => rawDb.collection('presence').find({ session: sid_, ...extra }).toArray();
+  const openOf = async sid_ => (await rowsOf(sid_)).filter(r => !r.endedAt);
+  const C1 = uuid();
+  const PROC = { pid: 4242, procStart: '133000000000000001' };
+  const i1 = await post(pcI.key, { folders: ['ifold1'], machine: 'ipc', head: 'aaa1111', branch: 'main', path: 'C:/code/agent-one', ccSession: C1, source: 'startup', proc: PROC }, { headers: H4 });
+  const sI = i1.json?.brief?.session;
+  const TI = i1.json?.token ?? '';
+  const idRec = await rawDb.collection('agentIdentities').findOne({ _id: sI });
+  check('record: a new session makes its record (id = the first token row id, the Claude Code session, the project, the proc)', i1.status === 200 && !!idRec && idRec.ccSessions.includes(C1) && idRec.projectId === one && idRec.deviceId === pcI.id && idRec.proc?.pid === 4242 && !!(await rawDb.collection('agentSessions').findOne({ _id: sI, sessionId: sI })), `${i1.status} ${JSON.stringify(idRec)}`);
+  const rowI = (await rowsOf(sI, { projectId: one }))[0];
+  // token for P + a folder no project owns: stays on P, elsewhere, nothing written for the folder
+  const whereBefore = JSON.stringify((await rawDb.collection('states').findOne({ _id: one })).where?.ipc);
+  const i2 = await post(TI, { folders: ['nothere'], machine: 'ipc', head: 'bbb2222', branch: 'other', path: 'C:/code/parent', ccSession: C1, source: 'resume', proc: PROC }, { headers: H4 });
+  const rowI2 = (await rowsOf(sI, { projectId: one }))[0];
+  check('elsewhere: a token for P with a folder no project owns: same id, P, elsewhere: true and the folder ids of P on this PC', i2.status === 200 && i2.json?.brief?.session === sI && i2.json?.brief?.project?.id === one && i2.json?.elsewhere === true && JSON.stringify(i2.json?.projectFolders) === JSON.stringify(['ifold1']) && !('token' in (i2.json ?? {})), `${i2.status} ${i2.text.slice(0, 220)}`);
+  check('elsewhere: Where and the folder key are unchanged, and the brief has no sameFolder', JSON.stringify((await rawDb.collection('states').findOne({ _id: one })).where?.ipc) === whereBefore && rowI2?.folderKey === rowI?.folderKey && !('sameFolder' in (i2.json?.brief ?? {})));
+  // the same with the device key and no token (a restart): the same session through its Claude Code session id
+  const i2b = await post(pcI.key, { folders: ['nothere'], path: 'C:/code/parent', ccSession: C1, source: 'resume', proc: PROC }, { headers: H4 });
+  check('elsewhere: a restart with the device key and no token is the same session (by its Claude Code session id), a new token, one open row', i2b.status === 200 && i2b.json?.brief?.session === sI && i2b.json?.elsewhere === true && /^wst_/.test(i2b.json?.token ?? '') && (await openOf(sI)).length === 1, `${i2b.status} ${i2b.json?.brief?.session} ${sI}`);
+  check('tokens are keys: both tokens of the session still work (nothing was deleted or replaced)', (await ev4(TI, { event: 'tool' })).status === 200 && (await ev4(i2b.json?.token ?? '', { event: 'tool' })).status === 200 && (await rawDb.collection('agentSessions').countDocuments({ sessionId: sI })) === 2);
+  // start_work with no machine (the agent's own call), then a hook start: the same id and one row
+  const swr = await mcpH(kSame, 'start_work', { project: 'Agent One' }, { 'X-Work-OS-Session': sI });
+  const i2c = await post(pcI.key, { folders: ['ifold1'], path: 'C:/code/agent-one', ccSession: C1, source: 'resume', proc: PROC }, { headers: H4 });
+  check('start_work with no machine, then a hook start: the same id, one presence row', !swr.isError && i2c.json?.brief?.session === sI && (await rowsOf(sI, { projectId: one })).length === 1, `${swr.text.slice(0, 120)} ${i2c.json?.brief?.session}`);
+  // an old hook (protocol 3) with a foreign remote is unfiled; with no remote or the project's own remote it stays filed
+  const old1 = await post(TI, { folders: ['nothere'], remote: 'https://github.com/other/zzz.git', ccSession: C1 }, { headers: H3 });
+  check('old hook: a foreign remote and no folder of the project: unfiled, the same id, no token (it has one), the P row ended and a none row opened', old1.status === 200 && old1.json?.unfiled === true && !('token' in (old1.json ?? {})) && !!(await rowsOf(sI, { projectId: one }))[0]?.endedAt && (await rowsOf(sI, { projectId: null })).length === 1 && (await rawDb.collection('agentIdentities').findOne({ _id: sI })).projectId === null, `${old1.status} ${old1.text.slice(0, 160)}`);
+  const un1 = await post(pcI.key, { folders: ['ifold1'], path: 'C:/code/agent-one', ccSession: C1, source: 'startup', proc: PROC }, { headers: H4 });
+  check('unfiled, then the folder is linked: the same id on the project, no 403, one open row, the none row ended', un1.status === 200 && un1.json?.brief?.session === sI && un1.json?.brief?.project?.id === one && (await openOf(sI)).length === 1 && !!(await rowsOf(sI, { projectId: null }))[0]?.endedAt, `${un1.status} ${un1.json?.brief?.session}`);
+  const old2 = await post(TI, { folders: ['nothere'], remote: 'https://github.com/acme/agent-one.git', ccSession: C1 }, { headers: H3 });
+  const old3 = await post(TI, { folders: ['nothere'], ccSession: C1 }, { headers: H3 });
+  check('old hook: the project\'s own remote, or no remote: stays filed on its project', old2.status === 200 && old2.json?.brief?.project?.id === one && old3.status === 200 && old3.json?.brief?.project?.id === one, `${old2.status} ${old3.status}`);
+  // hook 4 (the Lanes hook) is not identity-aware: it counts as old, so a foreign remote with no folder of the project does not stay filed
+  const old5 = await post(TI, { folders: ['nothere'], remote: 'https://github.com/other/zzz.git', ccSession: C1 }, { headers: H4 });
+  check('hook 4 (not identity-aware): a foreign remote and no folder of the project: unfiled, not kept on the project', old5.status === 200 && old5.json?.unfiled === true && (await rawDb.collection('agentIdentities').findOne({ _id: sI })).projectId === null, `${old5.status} ${old5.text.slice(0, 160)}`);
+  await post(pcI.key, { folders: ['ifold1'], path: 'C:/code/agent-one', ccSession: C1, source: 'resume', proc: PROC }, { headers: { 'x-work-os-hook': '5' } }); // filed again for what follows
+  const old4 = await post(TI, { folders: ['nothere'], remote: 'https://github.com/other/zzz.git', ccSession: C1 }, { headers: { 'x-work-os-hook': '2' } });
+  check('old hook (protocol 2): a foreign remote: the 404 as before, nothing changed', old4.status === 404 && old4.json?.unfiled === true && (await rawDb.collection('agentIdentities').findOne({ _id: sI })).projectId === one);
+  // a session unfiled from the start gets its token, and the folder being linked later keeps the id
+  const C2 = uuid();
+  const u0 = await post(pcI.key, { folders: ['ipar'], path: 'C:/code/parent', ccSession: C2, source: 'startup', proc: { pid: 4343, procStart: '133000000000000002' } }, { headers: H3 });
+  const sU = (await rawDb.collection('agentIdentities').findOne({ ccSessions: C2 }))?._id;
+  check('unfiled start (hook 3): an unfiled answer with a token and a record with no project', u0.status === 200 && u0.json?.unfiled === true && /^wst_/.test(u0.json?.token ?? '') && !!sU && (await rawDb.collection('agentIdentities').findOne({ _id: sU })).projectId === null);
+  await rawDb.collection('workerFolders').updateOne({ _id: `${pcI.id}:ipar` }, { $set: { projectId: one, linkedAt: new Date() } });
+  const u1 = await post(u0.json?.token ?? '', { folders: ['ipar'], path: 'C:/code/parent', ccSession: C2, source: 'startup' }, { headers: H3 });
+  check('unfiled, then its folder is linked (the unfiled token): the same id on the project, no 403, one open row', u1.status === 200 && u1.json?.brief?.session === sU && u1.json?.brief?.project?.id === one && (await openOf(sU)).length === 1 && (await rowsOf(sU, { projectId: null }))[0]?.endedAt, `${u1.status} ${u1.text.slice(0, 160)}`);
+  await rawDb.collection('workerFolders').updateOne({ _id: `${pcI.id}:ipar` }, { $set: { projectId: null, linkedAt: null } });
+  // the folder of Q: same id, on Q, the P row ended
+  const q1 = await post(TI, { folders: ['ifold2'], path: 'C:/code/agent-two', ccSession: C1, source: 'startup' }, { headers: H4 });
+  check('folder of project Q: the same id on Q (no 403), the P row ended, one open row, the record is on Q', q1.status === 200 && q1.json?.brief?.session === sI && q1.json?.brief?.project?.id === two && !('elsewhere' in (q1.json ?? {})) && !!(await rowsOf(sI, { projectId: one }))[0]?.endedAt && (await openOf(sI)).length === 1 && (await rawDb.collection('agentIdentities').findOne({ _id: sI })).projectId === two, `${q1.status} ${q1.text.slice(0, 160)}`);
+  check('…and the token now answers for Q (an event goes to the Q row)', (await ev4(TI, { event: 'prompt' })).status === 200 && !!(await rowsOf(sI, { projectId: two }))[0]?.activity);
+  // /clear: a new Claude Code session id in the same claude process (pid and start time) is the same session
+  const C1b = uuid();
+  const cl = await post(pcI.key, { folders: ['ifold2'], path: 'C:/code/agent-two', ccSession: C1b, source: 'clear', proc: PROC }, { headers: H4 });
+  check('/clear with the same pid and start time: the same id, both Claude Code session ids on the record', cl.status === 200 && cl.json?.brief?.session === sI && (await rawDb.collection('agentIdentities').findOne({ _id: sI })).ccSessions.sort().join() === [C1, C1b].sort().join(), `${cl.status} ${cl.json?.brief?.session} vs ${sI}`);
+  const clx = await post(pcI.key, { folders: ['ifold2'], path: 'C:/code/agent-two', ccSession: uuid(), source: 'clear', proc: { pid: 4242, procStart: '133000000000000999' } }, { headers: H4 });
+  const clr = await post(pcI.key, { folders: ['ifold2'], path: 'C:/code/agent-two', ccSession: uuid(), source: 'resume', proc: PROC }, { headers: H4 });
+  check('a clear with another start time, or a new Claude Code session id that is not a clear: a new session', clx.status === 200 && clx.json?.brief?.session !== sI && clr.status === 200 && clr.json?.brief?.session !== sI);
+  // two starts at once for one Claude Code session: one record, both tokens work
+  const C3 = uuid();
+  const [c1, c2] = await Promise.all([1, 2].map(() => post(pcI.key, { folders: ['ifold1'], path: 'C:/code/agent-one', ccSession: C3, source: 'startup' }, { headers: H4 })));
+  const sC = c1.json?.brief?.session;
+  check('two concurrent starts of one Claude Code session: one record, both answer 200 with the same id', c1.status === 200 && c2.status === 200 && !!sC && c2.json?.brief?.session === sC && (await rawDb.collection('agentIdentities').countDocuments({ ccSessions: C3 })) === 1, `${c1.status} ${c2.status} ${c1.json?.brief?.session} ${c2.json?.brief?.session}`);
+  check('…and both tokens post events', (await ev4(c1.json?.token ?? '', { event: 'prompt' })).status === 200 && (await ev4(c2.json?.token ?? '', { event: 'stop' })).status === 200);
+  // a merged old id sent again does not bring its row back
+  const C4 = uuid();
+  const m1 = await post(pcI.key, { folders: ['ifold1'], path: 'C:/code/agent-one', ccSession: C4, source: 'startup' }, { headers: H4 });
+  const sM = m1.json?.brief?.session;
+  await rawDb.collection('presence').updateOne({ session: sM, projectId: one }, { $set: { endedAt: new Date(Date.now() - 60_000), movedTo: 'someone-else-key', lastSeen: new Date(Date.now() - 3600_000) }, $unset: { activity: '' } });
+  const mBefore = await rawDb.collection('presence').findOne({ session: sM, projectId: one });
+  const mev = await ev4(m1.json?.token ?? '', { event: 'prompt' });
+  const mAfter = await rawDb.collection('presence').findOne({ session: sM, projectId: one });
+  const mw = await fetch(B + '/api/agent/wait', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${m1.json?.token}` }, body: '{}' });
+  const mAfter2 = await rawDb.collection('presence').findOne({ session: sM, projectId: one });
+  check('a merged old id (ended, movedTo) sending an event or a wait: the row keeps its endedAt, its time and no new activity', mev.status === 200 && !!mAfter?.endedAt && !mAfter.activity && +mAfter.lastSeen === +mBefore.lastSeen && mw.status === 200 && +mAfter2.lastSeen === +mBefore.lastSeen, `${mev.status} ${mw.status} ${JSON.stringify(mAfter?.activity)}`);
+  // another computer of the same person: the first one's rows for that Claude Code session end
+  const C5 = uuid();
+  const a1 = await post(pcI.key, { folders: ['ifold1'], path: 'C:/code/agent-one', ccSession: C5, source: 'startup' }, { headers: H4 });
+  const a2 = await post(pcI2.key, { folders: ['ifold1'], path: 'D:/code/agent-one', ccSession: C5, source: 'resume' }, { headers: H4 });
+  check('the same Claude Code session id on another computer: its own session id there, and the first computer\'s row ends', a2.status === 200 && a2.json?.brief?.session !== a1.json?.brief?.session && !!(await rowsOf(a1.json?.brief?.session))[0]?.endedAt && !(await rowsOf(a2.json?.brief?.session))[0]?.endedAt);
+  check('the record of a legacy token (a row with no sessionId) is made on its first use, with its own id', await (async () => {
+    const legacy = (await post(pcI.key, { folders: ['ifold1'], path: 'C:/code/agent-one' }, { headers: H4 })).json;
+    const lid = legacy?.brief?.session;
+    await rawDb.collection('agentIdentities').deleteOne({ _id: lid });
+    await rawDb.collection('agentSessions').updateOne({ _id: lid }, { $unset: { sessionId: '' } });
+    const r = await post(legacy?.token ?? '', {}, { headers: H4 });
+    return r.status === 200 && r.json?.brief?.session === lid && !!(await rawDb.collection('agentIdentities').findOne({ _id: lid }));
+  })());
 
   // ---- hourly limits ----
   const pc4 = await deviceOf(A, 'agent-pc-4');

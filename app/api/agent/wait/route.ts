@@ -27,6 +27,7 @@ import { waitFor } from '@/lib/live';
 //     200 { busy: true }         the session is working (or off): in-turn delivery has it; the hook stops waiting
 //     200 { again: true }        nothing: ask again (a newer waiter for the session, or the time is up); with retryAfter (and a
 //                                Retry-After header) when too many sessions are waiting: ask again no sooner than that
+//   Every 200 also carries expiresAt: when the token ends (moved forward on use, lib/agent-auth.ts).
 //   body { since?, ack? }: ack = ids the hook printed from the last offer (see the event route); applied first.
 //   401 no or bad credential · 404 no such session or no folder on this computer any more · 400 bad body · 413 too large
 //   429 over the hourly limit of 120 polls (Retry-After)
@@ -49,6 +50,7 @@ export async function POST(req: Request): Promise<Response> {
     const auth = await authAgentToken(bearerOf(req));
     if (!auth) return unauthorized();
     const { s, device, session } = auth;
+    const ok = (body: object, extra?: Record<string, string>) => reply(200, { ...body, expiresAt: session.expiresAt.toISOString() }, extra); // every answer carries when the token ends
     if (!(await reserveAgent('wait', session.id))) {
       return reply(429, { error: 'Too many Work OS waits from this session in the last hour; try again later.' }, { 'Retry-After': '600' });
     }
@@ -82,7 +84,7 @@ export async function POST(req: Request): Promise<Response> {
       // A row the hook has not reported on yet (no activity) is idle: the call-based rules of the roster would call it working.
       const st = row.activity || row.endedAt ? presenceState({ lastSeen: new Date(Math.max(row.lastSeen.getTime(), seenNow)), activity: row.activity, endedAt: row.endedAt }, { now: Date.now() }) : { state: 'on' as const, why: undefined };
       // Mid-turn (working, or stopped at a permission prompt) or gone: the hook stops waiting and delivery inside the turn has it.
-      if (st.state === 'working' || st.state === 'off' || (st.state === 'waiting' && st.why === 'prompt')) return reply(200, { busy: true });
+      if (st.state === 'working' || st.state === 'off' || (st.state === 'waiting' && st.why === 'prompt')) return ok({ busy: true });
       if ((await wakesLeft(sid)) > 0 && (await wakeWaiting(s, sid, projectId))) {
         // What came together goes out together: look again after a short pause, then hand it all over once.
         if (!batched && end - Date.now() >= 8_000) {
@@ -91,21 +93,21 @@ export async function POST(req: Request): Promise<Response> {
           continue;
         }
         // The hook has gone (its call timed out): nothing is offered to nobody.
-        if (req.signal.aborted) return reply(200, { again: true });
+        if (req.signal.aborted) return ok({ again: true });
         const r = await deliverFor(s, sid, projectId, 'wake');
-        if (r.delivery) return reply(200, { wake: true, text: r.delivery.text, ack: [...r.delivery.ids, ...r.delivery.needs] });
+        if (r.delivery) return ok({ wake: true, text: r.delivery.text, ack: [...r.delivery.ids, ...r.delivery.needs] });
       }
       // Nothing to deliver: an idle main session with work Work OS can see (a Next line that waits on nobody) is nudged (lib/data/nudges.ts).
       if (!batched && !req.signal.aborted) {
         const nudge = await idleNudge(s, { ...row, lastSeen: new Date(Math.max(row.lastSeen.getTime(), seenNow)) }, projectId);
-        if (nudge) return reply(200, { wake: true, text: nudge, ack: [] });
+        if (nudge) return ok({ wake: true, text: nudge, ack: [] });
       }
       const left = end - Date.now();
-      if (left <= 0) return reply(200, { again: true });
+      if (left <= 0) return ok({ again: true });
       const how = await waitFor(s.orgId, key, left);
-      if (how === 'bumped') return reply(200, { again: true });
+      if (how === 'bumped') return ok({ again: true });
       // Too many waiters (this person's or all): not held; the hook waits at least this long before asking again.
-      if (how === 'refused') return reply(200, { again: true, retryAfter: 60 }, { 'Retry-After': '60' });
+      if (how === 'refused') return ok({ again: true, retryAfter: 60 }, { 'Retry-After': '60' });
       if (projectId && !(await projectOnDevice(s, device.id, projectId))) return reply(404, { error: 'This project has no folder on this computer any more.' });
     }
   } catch (err) {

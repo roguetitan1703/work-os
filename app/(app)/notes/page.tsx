@@ -1,6 +1,8 @@
 import Link from '@/components/intent-link';
 import { ChevronRight, FileText, FolderOpen, ListTodo } from 'lucide-react';
-import { listNotes } from '@/lib/data/notes';
+import { listNotes, type Note } from '@/lib/data/notes';
+import { orgName } from '@/lib/people';
+import { MGroupTitle } from '@/components/mobile/sub-header';
 import { listProjectsBasic } from '@/lib/data/projects';
 import { fmtAgo } from '@/lib/format';
 import { requireScope } from '@/lib/caller';
@@ -41,6 +43,10 @@ export default async function NotesPage({ searchParams }: Props) {
     const s = u.toString();
     return s ? `/notes?${s}` : '/notes';
   };
+  // The organization's Orders sit above the list (they stay in it, and under their project's filter too).
+  const showOrg = state === 'active' && !sp.project && !shelf;
+  const orgOrders = showOrg ? notes.filter(n => n.orders === 'org' && n.visibility === 'org') : [];
+  const orgTitle = orgOrders.length ? await orgName(s.orgId) : '';
   const activeProjects = projects.filter(p => p.status === 'active' || p.status === 'paused');
 
   return (
@@ -92,11 +98,26 @@ export default async function NotesPage({ searchParams }: Props) {
         <span className="text-xs text-muted-foreground">{total} notes</span>
       </div>
 
+      {orgOrders.length > 0 && (
+        <section data-org-orders className="space-y-2">
+          <MGroupTitle>{orgTitle}</MGroupTitle>
+          <NoteLists notes={orgOrders} />
+        </section>
+      )}
+
       {notes.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
           {sp.project || shelf ? 'No notes match.' : state === 'archived' ? 'No archived notes.' : 'No notes yet. Create one from a task or project, or with New note.'}
         </div>
       ) : (
+        <NoteLists notes={notes} />
+      )}
+    </div>
+  );
+}
+
+function NoteLists({ notes }: { notes: Note[] }) {
+  return (
         <>
         <ul className="md:hidden -mx-4 divide-y divide-border/60 border-y border-border/60 bg-card">
           {notes.map(n => (
@@ -153,8 +174,6 @@ export default async function NotesPage({ searchParams }: Props) {
           ))}
         </ul>
         </>
-      )}
-    </div>
   );
 }
 

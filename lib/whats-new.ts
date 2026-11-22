@@ -37,12 +37,52 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'session-keeps-one-row',
+    date: '2026-11-22',
+    title: 'A session keeps one row and its work',
+    line: 'When a Claude session restarts, clears or moves to another project, it stays one session with its messages, Needs and what it is doing.',
+    where: 'Claude › Sessions',
+    href: '/claude',
+  },
+  {
+    id: 'no-false-working',
+    date: '2026-11-21',
+    title: 'No false Working on idle sessions',
+    line: 'A session that is only open, or one of several rows for the same Claude session, no longer shows as Working.',
+    where: 'Claude › Sessions',
+    href: '/claude',
+  },
+  {
+    id: 'inbox-gone',
+    date: '2026-11-21',
+    title: 'The old Messages for you inbox is gone',
+    line: 'Messages go straight to a session now, so there is no separate inbox card on Claude.',
+    where: 'Claude › Sessions',
+    href: '/claude',
+  },
+  {
+    id: 'share-note-link',
+    date: '2026-11-21',
+    title: "Share a page's link from its top bar",
+    line: "The Share button on a note opens your phone's share sheet, or copies the link on a computer.",
+    where: 'A note, top right',
+    href: '/notes',
+  },
+  {
     id: 'new-app-icon',
     date: '2026-11-21',
     title: 'A new Work OS icon',
     line: 'A new Work OS icon: one plan, many sessions.',
     where: 'The browser tab, the sidebar and the installed app',
     href: '/today',
+  },
+  {
+    id: 'org-orders-in-notes',
+    date: '2026-11-21',
+    title: "The organization's Orders on Notes",
+    line: "The organization's Orders sit under its name at the top of Notes.",
+    where: 'Notes, at the top',
+    href: '/notes',
   },
   {
     id: 'context-warning',
@@ -208,8 +248,8 @@ export const WHATS_NEW: readonly WhatsNewEntry[] = [
     id: 'messages-to-sessions',
     date: '2026-11-19',
     title: 'Messages go to sessions and people',
-    line: 'Send a message to one of your sessions or to a teammate; messages for you show under Claude › Now, where you apply, reject or reply. The project Inbox tab is gone.',
-    where: 'Claude › Now, Messages for you',
+    line: 'Send a message to one of your sessions or to a teammate; it goes straight to one session. The project Inbox tab is gone.',
+    where: 'Claude › Sessions, a session row’s Message',
     href: '/claude',
   },
   {

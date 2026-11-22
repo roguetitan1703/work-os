@@ -386,7 +386,7 @@ export type MessageDoc = Placed & {
   _id: string;
   /** Null: a message between two of one person's own sessions, one of which has no project (Identity step 6); it is placed private to that person. */
   projectId: string | null;
-  /** A person the message is for (it shows under Messages for you on their Claude › Now; their sessions do not get it). Needs a project both read. */
+  /** Old rows only (the personal inbox is gone, 21 Nov): nothing reads this to show or deliver. */
   toUser?: string;
   /** Who should act, for display: the addressed session's name (old messages: a label or client name, a hint). Never a raw session id. */
   toSession?: string;
@@ -618,7 +618,13 @@ export type DeviceActivity = { sessions: number; sessionsWorkOs: number; session
  * SHA-256); only the full SHA-256 is stored, never the token. `keyHash`: the hash of the device key it was made with
  * (the token is refused once the computer's key differs). TTL index on `expiresAt`.
  */
-export type AgentSessionDoc = { _id: string; hash: string; keyHash: string; deviceId: string; orgId: string; ownerId: string; /** Null: a session outside any project (Identity step 5): its token opens only event and wait. */ projectId: string | null; /** Claude Code's session id, kept for a no-project token so filing the folder can end it. */ ccSession?: string; createdAt: Date; expiresAt: Date; /** H15: the task dispatcher started this session (the PC's own worker session row says so); only ever adds refusals. */ dispatched?: { taskId: string; ref: number } };
+export type AgentSessionDoc = { _id: string; hash: string; /** The session this token is a key to (an AgentIdentityDoc id); none on a row older than the records: the session id is `_id`. */ sessionId?: string; keyHash: string; deviceId: string; orgId: string; ownerId: string; /** The project when the token was made (the session record holds the current one). */ projectId: string | null; /** Claude Code's session id when the token was made. */ ccSession?: string; createdAt: Date; expiresAt: Date; /** H15: the task dispatcher started this session (the PC's own worker session row says so); only ever adds refusals. */ dispatched?: { taskId: string; ref: number } };
+/**
+ * A session record (lib/agent-sessions.ts): one person, one computer, one Claude Code session (or, after /clear, several of its ids).
+ * `_id` is the Work OS session id and never changes; tokens (agentSessions rows) are keys to it. `projectId`: the current project, null when
+ * filed nowhere. `proc`: the claude process the hook last reported (pid and start time), which links a /clear to its session. TTL on lastSeen.
+ */
+export type AgentIdentityDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; ccSessions: string[]; projectId: string | null; proc?: { pid: number; procStart?: string }; /** H15: the task the dispatcher started this session for. */ dispatched?: { taskId: string; ref: number }; createdAt: Date; lastSeen: Date };
 export type WorkerFolderDoc = { _id: string; /** The device's owner and organization. */ orgId: string; ownerId: string; deviceId: string; folderId: string; name: string; git: boolean; remote?: string; branch?: string; projectId: string | null; linkedAt: Date | null; seenAt: Date; missing: boolean };
 export type WorkerJobDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; kind: 'start' | 'resume' | 'stop' | 'vscode' | 'desktop' | 'reopen' | 'dismiss'; folderId?: string; projectId?: string; /** Not set for reopen and dismiss (they act on the worker's own remembered set). */ sessionId?: string; prompt?: string; /** Turbo mode: the repo is not on the computer; the worker clones it first (docs/launcher.md). No folderId then. */ clone?: { repo: string; trusted: boolean }; /** The task ref of a dispatcher-started run: the worker puts it in the claude process's environment (WORK_OS_DISPATCHED) so the hooks refuse Orders edits there. */ dispatched?: number; createdAt: Date; takenAt: Date | null; doneAt: Date | null; ok?: boolean; error?: string };
 export type WorkerSessionDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; /** '' while its repo is still being cloned (turbo mode). */ folderId: string; projectId: string | null; /** Turbo mode: still cloning `repo` (owner/name). */ cloning?: boolean; repo?: string; /** Turbo mode: cloned but not trusted automatically; Claude Code asks the person on first run. */ needsTrust?: boolean; state: 'starting' | 'running' | 'dead' | 'stopped' | 'failed'; startedAt: Date; updatedAt: Date; error?: string; /** Its owner removed it from the list; the doc is kept. */ hidden?: boolean; /** Started by the dispatcher for `taskId`. */ dispatched?: boolean; taskId?: string; /** The run's own Work OS key (lib/run-keys.ts): only its hash; one live key per run, replaced at every start or resume. */ runKey?: RunKeyDoc };
@@ -766,6 +772,7 @@ const INDEXES: [string, IndexDescription[]][] = [
     ]],
     ['devices', [{ key: { hash: 1 }, unique: true, name: 'hash_unique' }, { key: { orgId: 1, ownerId: 1 }, name: 'org_owner' }]],
     ['agentSessions', [{ key: { hash: 1 }, unique: true, name: 'hash_unique' }, { key: { deviceId: 1, createdAt: -1 }, name: 'device_created' }, { key: { expiresAt: 1 }, name: 'expires_ttl', expireAfterSeconds: 0 }]],
+    ['agentIdentities', [{ key: { ownerId: 1, deviceId: 1, ccSessions: 1 }, unique: true, partialFilterExpression: { 'ccSessions.0': { $exists: true } }, name: 'owner_device_cc_unique' }, { key: { ownerId: 1, deviceId: 1, 'proc.pid': 1 }, name: 'owner_device_proc' }, { key: { lastSeen: 1 }, name: 'seen_ttl', expireAfterSeconds: 90 * 86_400 }]],
     ['workerFolders', [{ key: { deviceId: 1, name: 1 }, name: 'device_name' }, { key: { projectId: 1 }, name: 'project' }, { key: { remote: 1 }, name: 'remote' }, { key: { orgId: 1, ownerId: 1 }, name: 'org_owner' }]],
     ['workerJobs', [{ key: { deviceId: 1, doneAt: 1, createdAt: 1 }, name: 'device_pending' }, { key: { createdAt: 1 }, name: 'created_ttl', expireAfterSeconds: 30 * 86_400 }]],
     ['workerSessions', [{ key: { projectId: 1, updatedAt: -1 }, name: 'project_updated' }, { key: { deviceId: 1, state: 1 }, name: 'device_state' }, { key: { 'runKey.hash': 1 }, unique: true, name: 'run_key_hash', partialFilterExpression: { 'runKey.hash': { $type: 'string' } } }]],
@@ -859,6 +866,7 @@ export async function collections() {
     needs: db.collection<NeedDoc>('needs'),
     devices: db.collection<DeviceDoc>('devices'),
     agentSessions: db.collection<AgentSessionDoc>('agentSessions'),
+    agentIdentities: db.collection<AgentIdentityDoc>('agentIdentities'),
     workerFolders: db.collection<WorkerFolderDoc>('workerFolders'),
     workerJobs: db.collection<WorkerJobDoc>('workerJobs'),
     workerSessions: db.collection<WorkerSessionDoc>('workerSessions'),

@@ -48,3 +48,33 @@ test('state words: waiting on your prompt, a closed row is off, a trust prompt s
   assert.equal(v.finished.find(i => i.id === 'd1:c').state, 'off');
   assert.match(v.live.find(i => i.id === 'd1:t').word, /trust this new repo on Om-PC/);
 });
+
+test('three rows of one Claude session with the daemon reporting subagents: exactly one Working', () => {
+  const idle = id => worker(id, { cc: 's1', state: 'idle', subagents: 0 });
+  const v = mergeSessions([idle('a'), idle('b'), worker('c', { cc: 's1', state: 'idle', subagents: 2 })], [row('d1:s1', { subagents: 2 })], { tz, now });
+  assert.equal(v.live.filter(i => i.state === 'working').length, 1);
+  assert.equal(v.live.find(i => i.id === 'a').subagents, 0);
+  assert.equal(v.live.find(i => i.id === 'b').subagents, 0);
+  assert.equal(v.live.find(i => i.id === 'c').control.key, 'd1:s1');
+  assert.equal(v.live.find(i => i.id === 'c').subagents, 2);
+});
+
+test('an older row waiting on a Need and the current idle row whose builders work: the current row keeps its builders and is Working', () => {
+  const older = worker('old', { cc: 's1', state: 'waiting', waitingOn: 'need', lastSeen: iso(20), subagents: 0 });
+  const current = worker('cur', { cc: 's1', state: 'idle', lastSeen: iso(1), subagents: 3 });
+  const v = mergeSessions([older, current], [], { tz, now });
+  const cur = v.live.find(i => i.id === 'cur');
+  assert.equal(cur.subagents, 3);
+  assert.equal(cur.state, 'working');
+  assert.notEqual(cur.word, 'Idle');
+  assert.equal(v.live.find(i => i.id === 'old').subagents, 0);
+});
+
+test('with no builders the computer row goes to the newest open row, not the first in display order', () => {
+  const older = worker('old', { cc: 's1', state: 'waiting', waitingOn: 'need', lastSeen: iso(20) });
+  const current = worker('cur', { cc: 's1', state: 'idle', lastSeen: iso(1) });
+  const v = mergeSessions([older, current], [row('d1:s1', { subagents: 2 })], { tz, now });
+  assert.equal(v.live.find(i => i.id === 'cur').control.key, 'd1:s1');
+  assert.equal(v.live.find(i => i.id === 'cur').subagents, 2);
+  assert.equal(v.live.find(i => i.id === 'old').control, undefined);
+});

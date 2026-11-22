@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
+import { ObjectId } from 'mongodb';
 import { B, EMAIL, ME, MCP, PW, SP, check, finish, launch, login, makeUser, mkDevice, mkKey, okO, overflow, rawDb } from './lib.mjs';
 import { mcpH as mcpRaw, must, markOrders, hookRow } from './flow-lib.mjs';
 // The holder's Claude Code writes Orders only from a real session (H9 review): its calls carry one session id.
@@ -327,6 +328,101 @@ try {
     await tpg.waitForSelector('[data-orders-changes]', { timeout: 20000 });
     check('5b: a teammate sees the Changes but no Undo or Restore button', (await tpg.locator('li[data-orders-version]').count()) > 0 && (await tpg.locator('[data-orders-undo]').count()) === 0);
     await tctx.close();
+    // ---- 5c: Notes lists the organization's Orders under the organization's name, above the list (and in it) ----
+    const idIn = id => ({ $in: [new ObjectId(id), String(id)] });
+    const memberRow = await rawDb.collection('member').findOne({ userId: idIn(T.userId) });
+    const orgNm = String((await rawDb.collection('organization').findOne({ _id: idIn(memberRow?.organizationId) }))?.name ?? '');
+    const shown = (p, sel) => p.locator(`${sel}a[href="/notes/${org}"]`).evaluateAll(els => els.filter(e => e.getClientRects().length > 0).length);
+    for (const [kind, vp] of [['desktop', { width: 1280, height: 800 }], ['phone', { width: 390, height: 844 }]]) {
+      const c5 = await bro.newContext(kind === 'phone' ? { viewport: vp, deviceScaleFactor: 2, isMobile: true, hasTouch: true } : { viewport: vp });
+      const p5 = await c5.newPage();
+      await login(p5, { email: 'tess-h9@example.test', phone: kind === 'phone', next: '/notes' });
+      await p5.waitForSelector('[data-org-orders]', { timeout: 20000 }).catch(() => {});
+      check(`5c: ${kind}: a member who does not own the organization sees the section, headed by its name, with the Orders note`, (await p5.locator('[data-org-orders]').count()) === 1 && orgNm !== '' && (await p5.locator('[data-org-orders] h2').textContent()) === orgNm && (await shown(p5, '[data-org-orders] ')) === 1, orgNm);
+      check(`5c: ${kind}: the Orders note is in the normal list too`, (await shown(p5, '')) === 2);
+      await p5.goto(`${B}/notes?project=${(await rawDb.collection('projects').findOne({ name: 'H9 One' }))._id}`);
+      await p5.waitForLoadState('networkidle');
+      check(`5c: ${kind}: no section under a project filter, the note is still listed`, (await p5.locator('[data-org-orders]').count()) === 0 && (await shown(p5, '')) === 1);
+      await p5.goto(`${B}/notes?state=archived`);
+      check(`5c: ${kind}: no section on the archived list`, (await p5.locator('[data-org-orders]').count()) === 0);
+      await c5.close();
+    }
+    for (const [kind, vp] of [['desktop', { width: 1280, height: 800 }], ['phone', { width: 390, height: 844 }]]) {
+      for (const scheme of ['light', 'dark']) {
+        const c5 = await bro.newContext(kind === 'phone' ? { viewport: vp, deviceScaleFactor: 2, isMobile: true, hasTouch: true, colorScheme: scheme } : { viewport: vp, colorScheme: scheme });
+        const p5 = await c5.newPage();
+        await login(p5, { email: 'tess-h9@example.test', phone: kind === 'phone', next: '/notes' });
+        await p5.waitForSelector('[data-org-orders]', { timeout: 20000 });
+        await p5.screenshot({ path: SP + '/notes-org-' + kind + '-' + scheme + '.png', fullPage: true });
+        await c5.close();
+      }
+    }
+    // ---- 5d: the note's Share button: the share sheet where there is one, else the link on the clipboard (4 views by eye) ----
+    for (const [kind, vp] of [['desktop', { width: 1280, height: 800 }], ['phone', { width: 390, height: 844 }]]) {
+      for (const scheme of ['light', 'dark']) {
+        const c5 = await bro.newContext({ viewport: vp, colorScheme: scheme, permissions: ['clipboard-read', 'clipboard-write'], ...(kind === 'phone' ? { deviceScaleFactor: 2, isMobile: true, hasTouch: true } : {}) });
+        const p5 = await c5.newPage();
+        await p5.addInitScript(() => { Object.defineProperty(navigator, 'share', { value: undefined, configurable: true }); });
+        await login(p5, { email: 'tess-h9@example.test', phone: kind === 'phone', next: '/notes/' + org });
+        await p5.waitForSelector('[data-share-link]', { timeout: 20000 });
+        const sb = await p5.locator('[data-share-link]').boundingBox();
+        check('5d: ' + kind + ' ' + scheme + ': the Share button is on the note page, as large as its neighbours (' + (kind === 'phone' ? 44 : 32) + 'px)', !!sb && Math.round(sb.width) === (kind === 'phone' ? 44 : 32) && Math.round(sb.height) === (kind === 'phone' ? 44 : 32), JSON.stringify(sb));
+        await p5.locator('[data-share-link]').click();
+        await p5.waitForFunction(() => document.body.innerText.includes('Link copied'), null, { timeout: 5000 }).catch(() => {});
+        const clip = await p5.evaluate(() => navigator.clipboard.readText());
+        check('5d: ' + kind + ' ' + scheme + ': without a share sheet the full note URL is on the clipboard and the page says Link copied', clip === B + '/notes/' + org && (await p5.locator('body').innerText()).includes('Link copied'), clip);
+        await p5.screenshot({ path: SP + '/note-share-' + kind + '-' + scheme + '.png' });
+        await c5.close();
+      }
+    }
+    {
+      const c5 = await bro.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+      const p5 = await c5.newPage();
+      await p5.addInitScript(() => { window.__shared = []; Object.defineProperty(navigator, 'share', { value: async d => { window.__shared.push(d); }, configurable: true }); });
+      await login(p5, { email: 'tess-h9@example.test', phone: true, next: '/notes/' + org });
+      await p5.waitForSelector('[data-share-link]', { timeout: 20000 });
+      await p5.locator('[data-share-link]').tap();
+      await p5.waitForFunction(() => window.__shared.length > 0, null, { timeout: 5000 }).catch(() => {});
+      const shared = await p5.evaluate(() => window.__shared);
+      check('5d: with a share sheet, navigator.share gets the note title and its full URL', shared.length === 1 && shared[0].url === B + '/notes/' + org && typeof shared[0].title === 'string' && shared[0].title.length > 0, JSON.stringify(shared));
+      await c5.close();
+    }
+    // The share sheet failing: closing it (AbortError) does nothing more; any other error falls back to the copy; no clipboard at all says so.
+    for (const [label, init, want] of [
+      ['a closed share sheet (AbortError) shows no toast and copies nothing', () => { Object.defineProperty(navigator, 'share', { value: async () => { throw new DOMException('closed', 'AbortError'); }, configurable: true }); }, 'none'],
+      ['a refused share (NotAllowedError) falls back to copying the link', () => { Object.defineProperty(navigator, 'share', { value: async () => { throw new DOMException('no', 'NotAllowedError'); }, configurable: true }); }, 'copied'],
+      ['no clipboard shows an error toast', () => { Object.defineProperty(navigator, 'share', { value: undefined, configurable: true }); Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true }); }, 'error'],
+    ]) {
+      const c5 = await bro.newContext({ viewport: { width: 1280, height: 800 }, permissions: ['clipboard-read', 'clipboard-write'] });
+      const p5 = await c5.newPage();
+      await p5.addInitScript(init);
+      await login(p5, { email: 'tess-h9@example.test', next: '/notes/' + org });
+      await p5.waitForSelector('[data-share-link]', { timeout: 20000 });
+      if (want !== 'error') await p5.evaluate(() => navigator.clipboard.writeText('untouched'));
+      await p5.locator('[data-share-link]').click();
+      if (want === 'copied') await p5.waitForFunction(() => document.body.innerText.includes('Link copied'), null, { timeout: 5000 }).catch(() => {});
+      else if (want === 'error') await p5.waitForFunction(() => document.body.innerText.includes('Could not copy the link'), null, { timeout: 5000 }).catch(() => {});
+      else await p5.waitForTimeout(1200);
+      const txt = await p5.locator('body').innerText();
+      const clip = want === 'error' ? '' : await p5.evaluate(() => navigator.clipboard.readText().catch(() => ''));
+      const ok = want === 'copied' ? txt.includes('Link copied') && clip === B + '/notes/' + org : want === 'error' ? txt.includes('Could not copy the link') && !txt.includes('Link copied') : !txt.includes('Link copied') && !txt.includes('Could not copy') && clip !== B + '/notes/' + org;
+      check('5d: ' + label, ok, JSON.stringify([clip, txt.includes('Link copied')]));
+      await c5.close();
+    }
+    // With the project private, nobody else sees the section.
+    await must(MCP, 'update_project', { project: 'H9 One', visibility: 'private' });
+    try {
+      const c5 = await bro.newContext({ viewport: { width: 1280, height: 800 } });
+      const p5 = await c5.newPage();
+      await login(p5, { email: 'tess-h9@example.test', next: '/notes' });
+      // The page rendered (its "N notes" count shows) before the section is asserted absent.
+      await p5.waitForFunction(() => /\d+ notes/.test(document.body.innerText), null, { timeout: 20000 });
+      check('5c: with the project private, a teammate sees no section and no link to the note', p5.url().includes('/notes') && (await p5.locator('[data-org-orders]').count()) === 0 && (await p5.locator(`a[href="/notes/${org}"]`).count()) === 0);
+      await c5.close();
+    } finally {
+      await must(MCP, 'update_project', { project: 'H9 One', visibility: 'org' });
+    }
+    check('5c: the project shared again, the note is back to shared', (await noteDoc(org)).visibility === 'org');
   } finally {
     await bro.close();
   }

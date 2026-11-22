@@ -73,7 +73,7 @@ test('the start sends title, aiTitle, model and tool (no label), keeps the trans
   await event('session-start', { source: 'startup' });
   const b = seen[0].body;
   assert.equal(seen[0].url, '/api/agent/start');
-  assert.equal(seen[0].hook, '4');
+  assert.equal(seen[0].hook, '5');
   assert.equal(b.title, 'Made-up own name');
   assert.equal(b.aiTitle, 'Made-up AI title');
   assert.equal(b.model, 'made-up-model-1');

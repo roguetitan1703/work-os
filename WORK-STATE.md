@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 294. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 312. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -15,7 +15,10 @@ Copy of the Work OS state, version 294. WORK-STATE.md is a copy of the State, wr
 7. Context warning per project (Om, 21 Nov; Grant Leads asked): pre-tool hook reads each agent's context locally, warns at the project's line (150k for Grant Leads, off elsewhere), peak context in usage. Plan note 3e92845ac0; Merged to dev 21 Nov after review (method: lead plan + Sonnet; 521 worker tests, 8 suites pass). Live 21 Nov (f1812f0, worker 20261120.234229, with the new icon). Om sets Grant Leads to 150k. — waits on builder A's hook-gate merge
 8. Method trial (Om, 21 Nov): lead plan + Sonnet build vs Opus builder. Tag each piece of work with its method; on 23 Nov compare usage (usage page) and review findings/rework, report to Om.
 9. Per-project Working plan: the server swaps a project's own '## Working plan' into the Delpat Orders (dev 80aee73, reviewed). Work OS plan note 6f53fca67c waits for Om to mark it as the project's Orders; Grant Leads writes its own and Om marks it. Swap live (330d27c). Om questions whether per-project plans are needed; Grant Leads lead asked replace vs add (m_590d82a004e7). — waits on Om: release yes, mark the notes
-10. Discord v4 release: master c5201ea pushed (origin, delpat), worker signed (no worker change), WSL build running; then upload to manual-builds, sudo work-os-update, install + enable work-os-discord.service, check journalctl. Om's steps in note 34a1383581 (portal, DISCORD_CLIENT_SECRET, emoji, bug channels). — waits on the build finishing
+10. Discord v4 live (a3b867a, 21 Nov): listener running on the server, connected, no gateway errors. Waits on Om's steps in note 34a1383581 (portal URLs, Message Content intent, DISCORD_CLIENT_SECRET, wos emoji, Connect Discord, bug channels); then try a real post in #delpat-os. — waits on Om's Discord steps
+11. Next release carries: org Orders under Delpat at the top of Notes (df94585) and a Share button on the note page (merged to dev after review; flow-h9 132/0), plus the save-with-action hook change, and pull to refresh keeps its spinner 500 ms (builder B, reviewed; e2e 5/0 light and dark). — waits on Om's yes to release
+12. Session identity: one Claude session got three Work OS identities (Grant Leads, 20-21 Nov): an unfiled start (subfolder/parent cwd) then refile minted new ids; old rows never end and show Working. Plan 4277b6ce02 building in slot A; Fable reviewing the whole harness (identity, presence, messaging) before anything merges. — waits on Fable review + slot A build
+13. Old personal inbox removed, merged to dev (builder B 84f0ea9 + review fixes 9e05306; leak-audit 283/0, flow-ms1/4/5/6, messages-to-sessions, flow-pickup pass). After the next deploy the lead runs scripts/close-inbox-leftovers.mjs on prod (2 rows, Akash)., toUser read paths, 2 leftover messages for Akash): bug, the 20 Nov no-inbox change left them. Plan c347dde4a0, building in slot B; leftover script runs on prod after deploy. — waits on builder B, then review
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -84,7 +87,13 @@ Copy of the Work OS state, version 294. WORK-STATE.md is a copy of the State, wr
 - Slot tool is advisory: an agent refused a slot can carry on anyway, and nothing is logged (no record it ever refused anyone, checked 21 Nov). Proposal: the worker's Bash pre-tool hook counts real heavy processes on the PC (next build, e2e run.sh, headless Chrome, Blender, mongod) and makes a 3rd heavy command wait, with no agent cooperation; then remove the slot tool (one less tool, ties to #315). — waits on Om's go
 - Orders plan swap: mid-session Orders change notices (deliver.ts) still show changes to the Delpat default Working plan to sessions whose project runs its own plan; swap runs on text already cut at 20,000 chars. — waits on a project using its own plan
 - Trim the session start load (about 74K fixed, measured 21 Nov): switch off connectors Work OS never uses (BrahmaSuite admin, two grants servers, vidIQ) for Work OS sessions; check /context for the exact split.
+- Compaction cost measured 21 Nov: about 90K input-equivalent once (192K read + 4.5K summary + 35K cache rebuild); saves about 10K per call after, pays off after about 9 calls. Supports compacting the lead earlier (~150K).
+- Stop hook forces an extra turn after every merge or release just to save State; make the release flow save State itself (working plan draft 2, point 5).
+- Usage metric: subscription limits are % of the 5-hour and weekly windows, weighting not published. Compare work in API-price-weighted input tokens from transcripts (input + 0.1 cache read + 1.25 cache write + 5 output) as a stand-in; check it against get_usage % moves.
+- Pull to refresh broken in the PWA (Om, 21 Nov): the code (components/mobile/pull-to-refresh.tsx) hasn't changed since 14 Oct; the code read found no cause; a touch test on master (slot S, iPhone and Pixel) is running. — waits on the slot S touch test; Om's phone OS
+- tests/e2e/pull-refresh.mjs checks the spinner at 450 ms against a 500 ms hold: tight, may flake on a slow machine; widen if it does (merged 7fa6d88, 21 Nov).
+- Identity pieces E2/F: tests that shorten AGENT_TOKEN_TTL_MS must use 10 min or more (the hook refuses a renew within 5 min of the last). Hook and server must deploy together: an old server costs each fresh start 2 of its 30 sign-ins per hour. — waits on piece E and the real-use test
 
 ## Parked
 - 2 lines in Work OS: list_parked, or the project page.
-<!-- work-os-copy sha1:bf41950ff2a7e7ea1568a549e287959f43c20ac0 -->
+<!-- work-os-copy sha1:c0745f15801cdd545c1678dfe7b4b3e39d9d7c5a -->

@@ -31,6 +31,7 @@ mcp-get|mcp-get.mjs|none|plain
 mcp-relist|mcp-relist.mjs|none|plain
 nav|nav.mjs|nav|plain
 nav-cross|nav-cross.mjs|nav|plain
+pull-refresh|pull-refresh.mjs|nav|plain
 nav-preload-1|nav-preload-1.mjs|nav|plain
 nav-preload-2|nav-preload-2.mjs|nav|plain
 fix-check|fix-check.mjs|none|plain
@@ -111,6 +112,9 @@ alerts-once|alerts-once.mjs|none|discord
 flow-b4|flow-b4.mjs|none|plain
 flow-hooks|flow-hooks.mjs|none|plain
 agent-start|agent-start.mjs|none|plain
+agent-renew|agent-renew.mjs|none|plain
+session-merge|session-merge.mjs|none|plain
+session-identity-replay|session-identity-replay.mjs|none|plain
 flow-h2|flow-h2.mjs|none|plain
 claude-usage|claude-usage.mjs|none|plain
 agent-state|agent-state.mjs|none|plain

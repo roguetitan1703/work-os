@@ -241,9 +241,10 @@ export async function reserveIntake(source: IntakeSource): Promise<{ ok: true; r
  * device key may open, briefs one session token may fetch (start and every compaction), State calls (POST /api/agent/state) and session events (POST /api/agent/event) one session token may make. Its own counters, apart
  * from the key budgets above and the worker routes' per-minute limit. Messages into a session (docs/flows/agent-system.md 5.6):
  * deliver = reads of the unread messages by the event route (a hook asking), wake = idle sessions woken by a message or an answered
- * Need, cont = turns a Stop hook continued with one, wait = long polls of POST /api/agent/wait.
+ * Need, cont = turns a Stop hook continued with one, wait = long polls of POST /api/agent/wait, renew = the hook's renew sign-ins
+ * (POST /api/agent/start with renew), per computer and Claude Code session, apart from the 30 sign-ins an hour of `device`.
  */
-export const AGENT_PER_HOUR = { device: 30, session: 20, state: 240, event: 300, deliver: 360, wake: 6, cont: 20, wait: 120, release: 60 } as const;
+export const AGENT_PER_HOUR = { device: 30, session: 20, state: 240, event: 300, deliver: 360, wake: 6, cont: 20, wait: 120, release: 60, renew: 20 } as const;
 
 /** How many slots of an hourly agent budget are used (a peek: nothing is reserved). */
 export async function agentUsed(kind: keyof typeof AGENT_PER_HOUR, id: string): Promise<number> {
