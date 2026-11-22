@@ -49,7 +49,7 @@ import type { HandoverFields } from '../db';
 import { holderOf, machineKey, MAX_WAIT_S, POLL_MS, prepareSlot, releaseSlot, tryAcquire } from '../data/slots';
 import { forYouAfter, forYouBefore } from './for-you';
 import { requestContext, runWithRequestContext, sessionHeader } from '../request-context';
-import { noteRefusal, recentRefusals } from './refusals';
+import { noteFeedback, noteRefusal, recentRefusals, withHint, type RefusalKind } from './refusals';
 import { dispatchedOfToken } from '../agent-sessions';
 import { addDays, currentTz, isDateStr, resolveDate, resolvePastDate, startOfDay, todayStr, weekday } from '../dates';
 import { ModeSchema, PrioritySchema, ProjectStatusSchema, RATINGS, RESULT_KINDS, RecurrenceSchema, StatusSchema, VisibilitySchema, type Task, type TaskPatch } from '../types';
@@ -757,15 +757,20 @@ export function createMcpServer(ctx: Ctx): McpServer {
       name,
       { ...config, inputSchema: { ...(config as { inputSchema?: object }).inputSchema, session: sessionArg }, title: TOOLS[name].title, description: TOOLS[name].description },
       (async (...a: unknown[]) => {
+        // Note a refusal for the session and add the feedback hint to the answer when it is due. A refused feedback call is never noted.
+        const refused = <R extends ReturnType<typeof fail>>(res: R, ident: Ident, kind: RefusalKind, hint = true): R => {
+          if (name === 'feedback') return res;
+          const h = noteRefusal(sessionKey(ident), name, kind, Date.now(), hint);
+          return h ? withHint(res, h) : res;
+        };
         try {
           await beforeTool(caller, name, { session: identOf(name, a).session });
         } catch (err) {
           if (err instanceof PolicyError) {
-            if (name !== 'feedback') noteRefusal(sessionKey(identOf(name, a)), name, 'policy');
-            return fail(err.message);
+            return refused(fail(err.message), identOf(name, a), 'policy', !err.rate);
           }
           console.error('[mcp policy]', err);
-          return fail('Internal error');
+          return refused(fail('Internal error'), identOf(name, a), 'internal');
         }
         void recordToolCall(name); // how often each tool is called, per hour (Usage)
         // A dispatched run's own key (lib/run-keys.ts) acts only as its own sessions: a session id (argument of any tool, or the
@@ -775,8 +780,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
           const named = [sessionHeader(typeof arg === 'string' ? arg : null), requestContext().sid].filter((x): x is string => !!x);
           for (const sid of new Set(named)) {
             if (await namesOtherSession(s, sid, caller.dispatched.taskId)) {
-              noteRefusal(sessionKey(identOf(name, a)), name, 'policy');
-              return fail(`A dispatched run (task #${caller.dispatched.ref}) acts only as its own session: ${sid} is another session. Leave session out, or pass the id your own start_work returned.`);
+              return refused(fail(`A dispatched run (task #${caller.dispatched.ref}) acts only as its own session: ${sid} is another session. Leave session out, or pass the id your own start_work returned.`), identOf(name, a), 'policy');
             }
           }
         }
@@ -786,8 +790,8 @@ export function createMcpServer(ctx: Ctx): McpServer {
         // What this call creates is stamped with its session (else its key), so the line does not name it back to the session.
         const rc = { ...requestContext(), ...(ident.session ? { sid: ident.session } : {}), src: sessionKey(ident) };
         const res = await runWithRequestContext(rc, () => cb(...a));
-        if ((res as { isError?: boolean } | null)?.isError && name !== 'feedback') noteRefusal(sessionKey(ident), name, rc.failKind ?? 'internal');
-        return forYouAfter(pending, name, TOOLS[name].writes, res);
+        const out = (res as { isError?: boolean } | null)?.isError ? refused(res as ReturnType<typeof fail>, ident, rc.failKind ?? 'internal') : res;
+        return forYouAfter(pending, name, TOOLS[name].writes, out);
       }) as never,
     );
     testTools_?.set(name, registered);
@@ -1659,6 +1663,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const ident = identOf('feedback', [a]);
       const { project } = await stateData.getState(s, a.project);
       const r = await handovers.logFeedback(s, project, ACTOR, { text: a.text, tool: a.tool, rule: a.rule, refusals: recentRefusals(sessionKey(ident)) });
+      if (!('limit' in r)) noteFeedback(sessionKey(ident));
       if ('limit' in r) throw new InputError(`Nothing was written: that is ${handovers.FEEDBACK_PER_HOUR} feedback lines this hour. Put the rest in the friction line of end_work.`);
       const refusals = recentRefusals(sessionKey(ident));
       return 'duplicate' in r || !refusals.length ? r : { ...r, refusals };

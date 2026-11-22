@@ -72,10 +72,10 @@ try {
   const kT = await mkKey({ agent: 'claude-code', userId: T.userId, name: 'LN Tess cc' });
   PID = (await must(ccA, 'add_project', { name: P, visibility: 'org', code: [{ remote: 'acme/ln-alpha' }] })).project.id;
   const start = (key, sess, label) => must(key, 'start_work', { project: P, session: sess, label }, hdr(sess));
-  // A refusal's text without the MCP error prefix ("Error: "), so the checks compare the text Work OS wrote.
+  // A refusal's text without the MCP error prefix ("Error: ") and without the feedback hint line (lib/mcp/refusals.ts), so the checks compare the text Work OS wrote.
   const save = async (key, sess, ops, base) => {
     const r = await mcpH(key, 'save_state', { project: P, ops, ...(base !== undefined ? { base_version: base } : {}), session: sess }, hdr(sess));
-    return r.isError ? { ...r, text: r.text.replace(/^Error: /, '') } : r;
+    return r.isError ? { ...r, text: r.text.replace(/^Error: /, '').replace(/\n\nLooks hard\? [^\n]*$/, '') } : r;
   };
   await start(ccA, 'lnA', 'LN A');
   await start(ccB, 'lnB', 'LN B');

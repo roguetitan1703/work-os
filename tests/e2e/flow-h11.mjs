@@ -300,9 +300,9 @@ try {
   const PRIV = 'H11 Private';
   await must(kT, 'add_project', { name: PRIV, visibility: 'private' });
   await must(kT, 'save_state', { project: PRIV, ops: [{ op: 'add_later', text: 'Tess private line that must stay hidden' }] });
-  const nf1 = await mcpH(cc, 'declutter', { project: PRIV });
-  const nf2 = await mcpH(cc, 'declutter', { project: PRIV, ask: true, add: [{ later: 'x' }] });
-  const nf3 = await mcpH(cc, 'declutter', { project: 'H11 No Such Project' });
+  const nf1 = await mcpH(cc, 'declutter', { project: PRIV, session: 'h11nf1' }, hdr('h11nf1'));
+  const nf2 = await mcpH(cc, 'declutter', { project: PRIV, ask: true, add: [{ later: 'x' }], session: 'h11nf2' }, hdr('h11nf2'));
+  const nf3 = await mcpH(cc, 'declutter', { project: 'H11 No Such Project', session: 'h11nf3' }, hdr('h11nf3'));
   check('H11 privacy: a project the caller cannot read is "not found" for read and ask, same as one that does not exist', nf1.isError && nf2.isError && /not found/i.test(nf1.text) && /not found/i.test(nf2.text) && nf1.text.replace(PRIV, 'X') === nf3.text.replace('H11 No Such Project', 'X') && !nf1.text.includes('Tess'), [nf1.text, nf3.text].join(' | ').slice(0, 300));
   await must(cc, 'add_project', { name: 'H11 Zeta', visibility: 'org' });
   const empty = await must(cc, 'declutter', { project: 'H11 Zeta' }, hdr('h11z'));

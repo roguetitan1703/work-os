@@ -32,7 +32,7 @@ A project's **State** is its Now (one goal), Next, Later (found, not chased), De
 4. **Work.** `set_doing` names its task; its lane (branch, slot, task, last result) shows on the project; only the session holding Now records the State, at each merge. `save_state` writes the State; WORK-STATE.md is only a copy the hook writes. H3 "Lanes".
 5. **Messages.** `send_message` goes to a session of yours or to a person's lead session, woken if idle, with a frame saying who sent it and what it may ask; read with `message_status`. `docs/flows/session-messaging.md`; H3.
 6. **Needs.** `ask` only when the person is away or the question is for someone else; while they are in the chat, ask there and record a Decision. A push to production needs a release Need (Yes 1 h or 24 h). H3 "Messages", "release Need"; `docs/flows/enforcement.md`.
-7. **Feedback.** `feedback` tells Work OS what got in the way; refusals are plain and say what to do. H3.
+7. **Feedback.** `feedback` tells Work OS what got in the way; refusals are plain and say what to do; the third same refusal in 30 minutes suggests feedback. H3.
 8. **End.** `end_work` saves the State and leaves a handover; the next session (or `/transfer`) picks it up, and the old session's Needs, messages and holds move to it. H3 "end_work".
 
 ## The Claude page

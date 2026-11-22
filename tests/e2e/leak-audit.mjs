@@ -312,6 +312,7 @@ function diff(persona, before, after, allowed = () => false) {
   return bad;
 }
 
+const HINT_TAIL = /\n\nLooks hard\? [^\n]*$/; // the feedback hint (lib/mcp/refusals.ts) depends on how many refusals came before, not on the target
 // ── normalising answers for the "exists but not yours" check ────────────────
 function norm(text, real, fake) {
   let t = String(text);
@@ -689,14 +690,14 @@ try {
   const refusals = []; // every aimed call that was refused: { kind, tag, said }
   const tag = (who, pr) => `${who} ${pr.id}${pr.label ? ` (${pr.label})` : ''}`;
   // What an answer says, for the "exists but not yours" comparison: a page is found, not found, an error or a redirect;
-  // an action is its result (not the page it re-renders); anything else is its text. Ids the probe sent are taken out.
+  // an action is its result (not the page it re-renders); anything else is its text. Ids the probe sent are taken out, and the feedback hint is taken off.
   function shape(pr, res, tgt) {
     const keysOf = pr.aimKeys ?? [];
     const n = t => norm(t, Object.fromEntries(keysOf.map(k => [k, tgt[k]])), Object.fromEntries(keysOf.map(k => [k, FAKE[k]])));
     if (pr.shape) return pr.shape(res);
     if (pr.kind === 'page') return `${res.status} ${n(pageState(res))}`;
     if (pr.kind === 'action' && !res.missing && res.value !== undefined) return `${res.status} ${res.error ? 'error' : ''} ${res.redirect ? n(res.redirect) : ''} ${n(JSON.stringify(res.value))}`;
-    return `${res.status} ${n(res.redirect ?? res.location ?? '')} ${n(res.text)}`;
+    return `${res.status} ${n(res.redirect ?? res.location ?? '')} ${n(String(res.text).replace(HINT_TAIL, ''))}`;
   }
   // Making or moving something into a project by a name the caller cannot see makes the caller a project of that name
   // (by design, and alike for a real and a made-up name). Those projects, and what went into them, are removed after

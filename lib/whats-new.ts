@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'feedback-hint-repeated-refusals',
+    date: '2026-11-22',
+    title: 'Agents stuck on a refusal are asked to tell you',
+    line: 'When an agent’s call is refused the same way three times in 30 minutes, Work OS suggests it tell you in one line; that line shows in the project’s activity.',
+    where: 'Review › Activity, What: State',
+    href: '/review?view=activity&what=state',
+  },
+  {
     id: 'session-keeps-one-row',
     date: '2026-11-22',
     title: 'A session keeps one row and its work',

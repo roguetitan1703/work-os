@@ -69,9 +69,13 @@ Gap: an idle cloud session with nothing running cannot be woken; the message wai
 
 ## 5. Work OS as a friend; feedback from agents (Om)
 - Every refusal says why and what to do instead (Claude Code's tool-error style), never a bare error.
-- Friction is detected server-side at no token cost: the same tool 3+ times in a few minutes with different arguments,
-  repeated empty results, the same refusal twice. The next answer carries one line: "Looks hard? Tell Work OS with
-  `feedback` (one line)." Applies to chat sessions too.
+- Friction is noticed server-side at no token cost. Built (H10, 22 Nov): when the same tool is refused the same way
+  (the same `tool:kind`, any arguments) 3 times in 30 minutes, that third refused answer itself ends with one line:
+  "Looks hard? <tool> was refused 3 times in the last 30 minutes (<kind>). Tell Work OS in one line with feedback
+  {project, text, tool: "<tool>"} and go on; your refused calls are attached for you." At most once per 30 minutes per
+  session (else per key); a feedback call, recorded or a duplicate, silences it for 30 minutes; never on a refused
+  feedback call, a rate-limit refusal or a schema refusal the tool never saw (`lib/mcp/refusals.ts`). Applies to chat
+  sessions too. Not built: the same tool 3+ times in a few minutes with different arguments, and repeated empty results.
 - `feedback {text, rule?}` files an item in the Work OS project with the recent calls attached.
 - Pushback is counted per rule; when several sessions push on one rule, Om gets one Need (keep / loosen / drop) with
   their reasons. Agents may also propose changes to the notes shelves this way (Om).
