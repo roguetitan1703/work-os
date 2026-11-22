@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 335. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 336. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -105,7 +105,8 @@ Copy of the Work OS state, version 335. WORK-STATE.md is a copy of the State, wr
 - Cloud sessions get no pre-push hook: have the cloud SessionStart hook set core.hooksPath .githooks (worker change, after the tooling work).
 - No-sid: plan v8 is note 983ae63baf (review of v7: b4f66bc1f0). Next: a fresh plan review of v8. Step 17 must also add holdExists, newLease and LEASE_RE to server.ts's slots import. Stopped at the usage limit, 22 Nov.
 - After the 03:00 deploy on 23 Nov: verify the feedback hint on prod. Call get_task 999999 three times; the third call should give the hint.
+- No-sid: plan v8 (983ae63baf) got 'build' in review 8d71aec2b2 on 22 Nov. It is being built in slot B with the review's fixes L1-L4. Next: diff review, merge, release, then the prod cleanup.
 
 ## Parked
 - 2 lines in Work OS: list_parked, or the project page.
-<!-- work-os-copy sha1:4e8eacb4de72d43076901937be2359e3717d4958 -->
+<!-- work-os-copy sha1:3149de9fe27a3481321348d89c0d0a8eb042eb04 -->
