@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 329. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 330. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -17,9 +17,9 @@ Copy of the Work OS state, version 329. WORK-STATE.md is a copy of the State, wr
 9. Per-project Working plan: the server swaps a project's own '## Working plan' into the Delpat Orders (dev 80aee73, reviewed). Work OS plan note 6f53fca67c waits for Om to mark it as the project's Orders; Grant Leads writes its own and Om marks it. Swap live (330d27c). Om questions whether per-project plans are needed; Grant Leads lead asked replace vs add (m_590d82a004e7). — waits on Om: release yes, mark the notes
 10. Discord v4 live (a3b867a, 21 Nov): listener running on the server, connected, no gateway errors. Waits on Om's steps in note 34a1383581 (portal URLs, Message Content intent, DISCORD_CLIENT_SECRET, wos emoji, Connect Discord, bug channels); then try a real post in #delpat-os. — waits on Om's Discord steps
 11. Next release carries: org Orders under Delpat at the top of Notes (df94585) and a Share button on the note page (merged to dev after review; flow-h9 132/0), plus the save-with-action hook change, and pull to refresh keeps its spinner 500 ms (builder B, reviewed; e2e 5/0 light and dark). — waits on Om's yes to release
-12. Session identity: one Claude session got three Work OS identities (Grant Leads, 20-21 Nov): an unfiled start (subfolder/parent cwd) then refile minted new ids; old rows never end and show Working. No-sid fix: plan v2 d9f2c3aef8 in review, replay 89f040c fails on dev, P1 passed (desktop); then slot B build, review, release, prod cleanup. M0-M6 migration after it. — waits on Fable review + slot A build
+12. Session identity: one Claude session got three Work OS identities (Grant Leads, 20-21 Nov): an unfiled start (subfolder/parent cwd) then refile minted new ids; old rows never end and show Working. No-sid fix: plan v2 d9f2c3aef8 got 'change' (review 198eaed5c2: replay checks 2-4 need fixing, injection hits foreign tools); P1 passed on desktop; thinker writing v3; replay 89f040c fails on dev; then slot B build, review, release, prod cleanup. M0-M6 migration after it. — waits on Fable review + slot A build
 13. Old personal inbox removed, merged to dev (builder B 84f0ea9 + review fixes 9e05306; leak-audit 283/0, flow-ms1/4/5/6, messages-to-sessions, flow-pickup pass). After the next deploy the lead runs scripts/close-inbox-leftovers.mjs on prod (2 rows, Akash)., toUser read paths, 2 leftover messages for Akash): bug, the 20 Nov no-inbox change left them. Plan c347dde4a0, building in slot B; leftover script runs on prod after deploy. — waits on builder B, then review
-14. Process tooling (Om 22 Nov): docs/ARCHITECTURE.md (owned questions), check:owners ratchet, npm run check, pre-push, checks.yml. Plan note 41a34eeb88 (audit 5e073d193f) in plan review; then builder in slot S, review, merge. check:links fails on dev until it lands. Waits on: plan review.
+14. Process tooling (Om 22 Nov): docs/ARCHITECTURE.md (owned questions), check:owners ratchet, npm run check, pre-push, checks.yml. Plan note 41a34eeb88 (audit 5e073d193f) got 'change' (review c9e22af9f8: ratchet can go up, patterns miss copies); thinker writing v2; then plan review, builder in slot S, review, merge. check:links fails on dev until it lands. Waits on: plan review.
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -102,4 +102,4 @@ Copy of the Work OS state, version 329. WORK-STATE.md is a copy of the State, wr
 
 ## Parked
 - 2 lines in Work OS: list_parked, or the project page.
-<!-- work-os-copy sha1:345a277c3b57a8d972ca5d70e3fa0eb05e71aec5 -->
+<!-- work-os-copy sha1:67b33030900cba284717fab9620c5e5403958383 -->
