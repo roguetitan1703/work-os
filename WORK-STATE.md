@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 337. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 338. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -19,8 +19,7 @@ Copy of the Work OS state, version 337. WORK-STATE.md is a copy of the State, wr
 11. Next release carries: org Orders under Delpat at the top of Notes (df94585) and a Share button on the note page (merged to dev after review; flow-h9 132/0), plus the save-with-action hook change, and pull to refresh keeps its spinner 500 ms (builder B, reviewed; e2e 5/0 light and dark). — waits on Om's yes to release
 12. Session identity: one Claude session got three Work OS identities (Grant Leads, 20-21 Nov): an unfiled start (subfolder/parent cwd) then refile minted new ids; old rows never end and show Working. No-sid fix: plan v2 d9f2c3aef8 got 'change' (review 198eaed5c2: replay checks 2-4 need fixing, injection hits foreign tools); P1 passed on desktop; thinker writing v3; replay 89f040c fails on dev; then slot B build, review, release, prod cleanup. M0-M6 migration after it. — waits on Fable review + slot A build
 13. Old personal inbox removed, merged to dev (builder B 84f0ea9 + review fixes 9e05306; leak-audit 283/0, flow-ms1/4/5/6, messages-to-sessions, flow-pickup pass). After the next deploy the lead runs scripts/close-inbox-leftovers.mjs on prod (2 rows, Akash)., toUser read paths, 2 leftover messages for Akash): bug, the 20 Nov no-inbox change left them. Plan c347dde4a0, building in slot B; leftover script runs on prod after deploy. — waits on builder B, then review
-14. Process tooling (Om 22 Nov): docs/ARCHITECTURE.md (owned questions), check:owners ratchet, npm run check, pre-push, checks.yml. Plan note 41a34eeb88 (audit 5e073d193f) got 'change' (review c9e22af9f8: ratchet can go up, patterns miss copies); v6 is note 3b7a2e85fa; next: fresh review of v6; then plan review, builder in slot S, review, merge. check:links fails on dev until it lands. Waits on: plan review.
-15. Discord settings fix (Om 22 Nov): the Discord connection moves to Settings > Connections > Discord (Manage now wrongly opens Notifications); bot, Today card and docs text point there; connected card shows the Discord name (old links get it from the bot API). Thinker planning.
+14. Discord settings fix (Om 22 Nov): the Discord connection moves to Settings > Connections > Discord (Manage now wrongly opens Notifications); bot, Today card and docs text point there; connected card shows the Discord name (old links get it from the bot API). Thinker planning.
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -107,7 +106,9 @@ Copy of the Work OS state, version 337. WORK-STATE.md is a copy of the State, wr
 - No-sid: plan v8 is note 983ae63baf (review of v7: b4f66bc1f0). Next: a fresh plan review of v8. Step 17 must also add holdExists, newLease and LEASE_RE to server.ts's slots import. Stopped at the usage limit, 22 Nov.
 - After the 03:00 deploy on 23 Nov: verify the feedback hint on prod. Call get_task 999999 three times; the third call should give the hint.
 - No-sid: plan v8 (983ae63baf) got 'build' in review 8d71aec2b2 on 22 Nov. It is being built in slot B with the review's fixes L1-L4. Next: diff review, merge, release, then the prod cleanup.
+- Review L4 (check:owners fix for lib/data/session-state.ts) goes with the wip-piece-1 merge
+- Tooling plan lead step L5 (the cloud-hook task) still to do
 
 ## Parked
 - 2 lines in Work OS: list_parked, or the project page.
-<!-- work-os-copy sha1:fb666ba1327c732049a20c462b2eff46bdbd9123 -->
+<!-- work-os-copy sha1:74f8a32325f73f190013f29ec9ddba2b4744bfd2 -->
