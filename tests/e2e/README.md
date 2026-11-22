@@ -73,4 +73,4 @@ Needs: Windows with MongoDB 8.2 at `C:\Program Files\MongoDB\Server\8.2\bin\mong
 
 ## Not covered here
 
-The worker's own unit tests are separate: `node --test worker/test/*.test.mjs`. Type check and lint: `npx tsc --noEmit`, `npx eslint --quiet`.
+The worker's unit tests, the type check and the static checks run with `npm run check` (no database). Lint: `npx eslint --quiet`.

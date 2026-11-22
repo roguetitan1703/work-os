@@ -1,0 +1,11 @@
+# The gate: what npm run check runs, as git pathspecs (AGENTS.md, Checks). tests/owners-check.mjs and .githooks/pre-push
+# name the ones a change touches; the reviewer reads that diff. The hook reads the remote's copy of this list and adds
+# .githooks, package.json and node_modules to it, so a branch that shortens it is still named on its push.
+package.json
+.npmrc
+tsconfig.json
+tsconfig.check.json
+.githooks
+scripts/check-links.mjs
+tests/*-check.mjs
+node_modules

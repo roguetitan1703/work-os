@@ -1,0 +1,60 @@
+#!/bin/sh
+# Work OS pre-push: a push of dev or master runs `npm run check` first (AGENTS.md, docs/ARCHITECTURE.md).
+# Install once per clone, in its main checkout, with an absolute path so every worktree of the clone runs this copy:
+#   git config core.hooksPath "$(git rev-parse --show-toplevel)/.githooks"
+# It tests the working tree, so the pushed commit must be HEAD here, with nothing changed and nothing untracked
+# (WORK-STATE.md aside: the Work OS hook rewrites it and commits it at the next tool call). The remote's own sha for the
+# branch is passed as OWNERS_BASE, so check:owners compares with what that remote has, whatever the remote is called.
+# The pushed commit runs its own copy of the checks. So the hook names the gate files that differ from what the remote
+# has (the remote's .githooks/gate-files, plus .githooks, package.json and node_modules), refuses a commit that tracks a
+# file under node_modules (npm runs node_modules/.bin first), and refuses a run that printed no "check:owners ok" line.
+# It catches an agent's mistake, not a determined author: a merged edit to this file runs on the push that carries it,
+# and only the reviewer's gate diff stops that (docs/ARCHITECTURE.md, The guard).
+# A commit that passed is remembered in <git common dir>/work-os-checked, so the second remote does not run it again.
+z40=0000000000000000000000000000000000000000
+pairs=
+while read -r lref lsha rref rsha; do
+  case "$rref" in
+    refs/heads/dev|refs/heads/master) [ "$lsha" = "$z40" ] || pairs="$pairs $lsha:$rsha" ;;
+  esac
+done
+[ -z "$pairs" ] && exit 0
+command -v npm >/dev/null 2>&1 || { echo "pre-push: npm is not on PATH here, so npm run check cannot run; nothing was pushed. Push from a shell where node and npm run." >&2; exit 1; }
+head=$(git rev-parse HEAD)
+mark="$(git rev-parse --git-common-dir)/work-os-checked"
+log="$(git rev-parse --git-dir)/work-os-check.log"
+# Git exports GIT_DIR and more to a hook run in a linked worktree; the tests build their own repos, so none of it may
+# reach them. OWNERS_* would point check:owners at another tree or base. git still finds this repo from the folder.
+unset $(git rev-parse --local-env-vars) OWNERS_BASE OWNERS_ROOT OWNERS_FILE OWNERS_TEST
+for p in $pairs; do
+  s=${p%%:*}
+  r=${p#*:}
+  [ -f "$mark" ] && grep -qx "$s" "$mark" && continue
+  if [ "$s" != "$head" ] || [ -n "$(git status --porcelain --untracked-files=normal -- . ':!WORK-STATE.md')" ]; then
+    echo "pre-push: $s is not HEAD here with a clean tree (git status lists changes or untracked files), so npm run check cannot test it. Push from the checkout where it is HEAD, with everything committed." >&2
+    exit 1
+  fi
+  if [ -n "$(git ls-tree -r --full-tree --name-only "$s" -- node_modules)" ]; then
+    echo "pre-push: $s tracks files under node_modules, and npm runs node_modules/.bin before anything else; nothing was pushed. Untrack them (git rm -r --cached node_modules), commit, then push again." >&2
+    exit 1
+  fi
+  if [ "$r" != "$z40" ]; then
+    git cat-file -e "$r^{commit}" 2>/dev/null || { echo "pre-push: the remote has $r, which this clone does not have, so the gate cannot be compared with it; nothing was pushed. Run git fetch, then push again." >&2; exit 1; }
+    # The gate: the remote's list (one git pathspec per line) plus what no list may drop; set -f keeps tests/*-check.mjs.
+    set -f
+    gate=$(echo $( { git show "$r:.githooks/gate-files" 2>/dev/null; echo; printf '%s\n' .githooks package.json node_modules; } | tr -d '\r' | grep -v '^#' | awk 'NF && !seen[$1]++ { print $1 }'))
+    shown=
+    for g in $gate; do case "$g" in *'*'*) shown="$shown '$g'" ;; *) shown="$shown $g" ;; esac; done
+    changed=$(echo $(git diff --name-only "$r" "$s" -- $gate) | sed 's/ /, /g')
+    set +f
+    r7=$(git rev-parse --short=7 "$r")
+    [ -n "$changed" ] && echo "pre-push: NOTE: the gate differs from the remote's $r7: $changed. The reviewer reads it: git diff $r7 $(git rev-parse --short=7 "$s") --$shown"
+  fi
+  echo "pre-push: npm run check for $s"
+  rm -f "$log" "$log.status"
+  { if [ "$r" = "$z40" ]; then npm run -s check; else OWNERS_BASE=$r npm run -s check; fi; echo $? > "$log.status"; } 2>&1 | tee "$log"
+  [ "$(cat "$log.status" 2>/dev/null)" = 0 ] || { echo "pre-push: npm run check failed; nothing was pushed." >&2; exit 1; }
+  grep -q '^check:owners ok' "$log" || { echo "pre-push: npm run check printed no \"check:owners ok\" line, so the owners check did not run; nothing was pushed. Read the check scripts in package.json." >&2; exit 1; }
+  echo "$s" >> "$mark"
+done
+exit 0

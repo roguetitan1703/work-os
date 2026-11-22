@@ -58,6 +58,8 @@ CLAUDE.md keeps judgment only. Every refusal says what to do instead. All of it 
 | D3 | Push to both remotes; scan for secrets and client names first; no Claude trailer where Om forbids it | Orchestrator: two-remotes push is easy to botch; trailer rule | One push script per repo, called by the pre-push hook; commit-msg hook strips/refuses the trailer |
 | D4 | Builder briefs name the worktree and branch | Grant Leads builder hit a branch in use | Agent-launch PreToolUse check: a builder brief without a worktree path is refused |
 
+Built (22 Nov 2026): `.githooks/pre-push` runs `npm run check` for a push of dev or master once a clone has set `core.hooksPath` (AGENTS.md, Checks); it names the gate files a push changes, refuses a commit that tracks files under `node_modules`, and refuses a run with no `check:owners ok` line. D2's e2e record and D3's push script are not built.
+
 ## E. Subagents and models
 | # | Rule | Seen | Enforcement |
 |---|---|---|---|

@@ -65,4 +65,4 @@ The worker is a small program on each PC. It reports sessions and folders, start
 - **Hosting:** an EC2 box, Caddy, systemd, MongoDB Atlas; `master` deploys at 03:00 IST; work goes to `dev` first. `docs/ops/hosting.md`.
 - **Many people:** organizations, shared and private, scoped data access. `docs/ops/multi-user.md`; H12.
 - **Request log and CPU:** `docs/ops/usage-log.md`, `docs/ops/cpu.md`.
-- **Working on the code:** H12; tests `tests/e2e/README.md`; the rules for UI are in `AGENTS.md`.
+- **Working on the code:** H12; the owned questions and their owners `docs/ARCHITECTURE.md`; `npm run check` before a merge; tests `tests/e2e/README.md`; the rules for UI are in `AGENTS.md`.

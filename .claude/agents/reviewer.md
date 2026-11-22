@@ -19,7 +19,7 @@ Reviewing a plan. Read docs/ARCHITECTURE.md and the plan's Case first, then the 
 
 Reviewing a change. You get the diff, the plan and the case. Answer these four first:
 1. Does it fix the case that started it, on every entrance the plan lists? Name the test line for each.
-2. Does `npm run check:owners` pass with no baseline increase, and does any new code answer an owned question outside its owner?
+2. Does `npm run check:owners` pass with no baseline increase, and does any new code answer an owned question outside its owner? Does the diff change the gate itself (`git diff dev... -- package.json .npmrc tsconfig.json tsconfig.check.json .githooks scripts/check-links.mjs 'tests/*-check.mjs' node_modules`, and any `NOTE:` line of `check:owners` or of the pre-push hook)? Name each such change and the plan line that allows it.
 3. Which assertions did the diff remove or change (`git diff dev... -- tests worker/test`)? List each with the plan line that allows it. For a replay: `git diff <its first commit>..HEAD -- <file>` must show no changed assertion.
 4. Who could type something false here, and where would it be stored or shown?
 Then find real defects: correctness, data safety, tenant scope and privacy, security, races, migrations and rollback, limits. Then check AGENTS.md: the HANDOVER section, the flow or ops file, the OVERVIEW line, a What's new entry, check:links and check:words.

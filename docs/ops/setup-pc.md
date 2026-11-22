@@ -121,6 +121,7 @@ In a repo with a Work OS project:
 2. Ask it to append a line to WORK-STATE.md: refused, naming save_state.
 3. Ask it to save State with any small change: WORK-STATE.md updates and a commit "WORK-STATE.md: copy of the Work
    OS State vN" appears.
+4. In the Work OS main checkout, which stays on `dev`: `git config --get core.hooksPath` prints that checkout's folder followed by `/.githooks`, and that folder has `pre-push`. If it prints nothing, run the install line from AGENTS.md (Checks) there.
 
 ## Cloud repos (Claude Code on the web)
 A cloud session has no worker, so the repo carries the hooks. From a PC with the worker, in the repo:
